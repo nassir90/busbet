@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTFS-R Vehicle Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; }
+  #map { width: 100%; height: calc(100vh - 80px); }
+  #controls {
+    height: 80px; padding: 12px 20px;
+    display: flex; align-items: center; gap: 16px;
+    background: #1a1a1a; border-top: 1px solid #333;
+  }
+  #slider { flex: 1; }
+  #time { font-size: 18px; font-variant-numeric: tabular-nums; min-width: 200px; }
+  #info { font-size: 14px; color: #999; min-width: 120px; }
+  #playBtn {
+    background: #2563eb; color: white; border: none; border-radius: 6px;
+    padding: 8px 16px; cursor: pointer; font-size: 14px;
+  }
+  #playBtn:hover { background: #1d4ed8; }
+  .bus-label {
+    background: none; border: none;
+    font-size: 13px; font-weight: 600; color: #fff;
+    text-shadow: 0 0 4px #000, 0 0 4px #000;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="controls">
+  <button id="playBtn">Play</button>
+  <input id="slider" type="range" min="0" max="0" value="0">
+  <div id="time">--:--:--</div>
+  <div id="info"></div>
+</div>
+
+<script>
+const DIR_LABELS = { 0: 'Outbound', 1: 'Inbound' };
+
+// Auto-assign colours to routes
+const PALETTE = [
+  '#ef4444','#3b82f6','#22c55e','#f59e0b','#a855f7',
+  '#ec4899','#14b8a6','#f97316','#6366f1','#84cc16'
+];
+const routeColorMap = {};
+let colorIdx = 0;
+function routeColor(routeId) {
+  if (!routeColorMap[routeId]) {
+    routeColorMap[routeId] = PALETTE[colorIdx % PALETTE.length];
+    colorIdx++;
+  }
+  return routeColorMap[routeId];
+}
+
+const map = L.map('map').setView([53.34, -6.38], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OSM &copy; CARTO',
+  maxZoom: 19
+}).addTo(map);
+
+let data = null;
+let tripIndex = {};
+let markers = [];
+let trailLines = {};
+let playing = false;
+let playTimer = null;
+
+const slider = document.getElementById('slider');
+const timeEl = document.getElementById('time');
+const infoEl = document.getElementById('info');
+const playBtn = document.getElementById('playBtn');
+
+fetch('/positions.json')
+  .then(r => r.json())
+  .then(d => {
+    data = d;
+    slider.max = data.timestamps.length - 1;
+    slider.value = 0;
+
+    for (const p of data.positions) {
+      if (!tripIndex[p.tripId]) tripIndex[p.tripId] = [];
+      tripIndex[p.tripId].push(p);
+    }
+    for (const pts of Object.values(tripIndex)) {
+      pts.sort((a, b) => a.ts - b.ts);
+    }
+
+    // Assign colours and build legend
+    const routeIds = [...new Set(data.positions.map(p => p.routeId))].sort();
+    for (const r of routeIds) routeColor(r);
+
+    const legend = L.control({ position: 'topright' });
+    legend.onAdd = () => {
+      const div = L.DomUtil.create('div');
+      div.style.cssText = 'background:#1a1a1a;padding:10px 14px;border-radius:8px;font-size:13px;color:#eee;line-height:1.8;max-height:300px;overflow-y:auto';
+      div.innerHTML = '<b>GTFS-R Tracker</b><br>' +
+        routeIds.map(r => `<span style="color:${routeColor(r)}">&#9679;</span> ${r}`).join('<br>');
+      return div;
+    };
+    legend.addTo(map);
+
+    render(0);
+  })
+  .catch(err => {
+    timeEl.textContent = 'Error loading data';
+    console.error(err);
+  });
+
+const MAX_GAP = 120;
+
+function positionAt(tripPositions, ts) {
+  const pts = tripPositions;
+  if (pts.length === 0 || ts < pts[0].ts) return null;
+
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (pts[mid].ts <= ts) lo = mid; else hi = mid - 1;
+  }
+  const before = pts[lo];
+
+  if (lo === pts.length - 1 || before.ts === ts) return before;
+
+  const after = pts[lo + 1];
+  if (after.ts - before.ts > MAX_GAP) return before;
+  if (Math.abs(after.lat - before.lat) > 0.01 || Math.abs(after.lon - before.lon) > 0.01) return before;
+
+  const t = (ts - before.ts) / (after.ts - before.ts);
+  return {
+    ...before,
+    lat: before.lat + (after.lat - before.lat) * t,
+    lon: before.lon + (after.lon - before.lon) * t,
+    delaySec: after.delaySec,
+  };
+}
+
+function render(idx) {
+  const ts = data.timestamps[idx];
+  const time = new Date(ts * 1000);
+  timeEl.textContent = time.toLocaleTimeString('en-IE', { hour12: false }) +
+    '  ' + time.toLocaleDateString('en-IE');
+
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  for (const lines of Object.values(trailLines)) {
+    for (const line of lines) map.removeLayer(line);
+  }
+  trailLines = {};
+
+  let busCount = 0;
+
+  for (const [tripId, pts] of Object.entries(tripIndex)) {
+    const trailPts = pts.filter(p => p.ts <= ts);
+    if (trailPts.length === 0) continue;
+
+    const color = routeColor(pts[0].routeId);
+
+    if (trailPts.length >= 2) {
+      const segments = [[[trailPts[0].lat, trailPts[0].lon]]];
+      for (let i = 1; i < trailPts.length; i++) {
+        const dt = trailPts[i].ts - trailPts[i-1].ts;
+        const dlat = Math.abs(trailPts[i].lat - trailPts[i-1].lat);
+        const dlon = Math.abs(trailPts[i].lon - trailPts[i-1].lon);
+        if (dt > MAX_GAP || dlat > 0.01 || dlon > 0.01) {
+          segments.push([]);
+        }
+        segments[segments.length - 1].push([trailPts[i].lat, trailPts[i].lon]);
+      }
+      const interp = positionAt(pts, ts);
+      if (interp) segments[segments.length - 1].push([interp.lat, interp.lon]);
+
+      for (const seg of segments) {
+        if (seg.length < 2) continue;
+        const line = L.polyline(seg, { color, weight: 3, opacity: 0.4 }).addTo(map);
+        if (!trailLines[tripId]) trailLines[tripId] = [];
+        trailLines[tripId].push(line);
+      }
+    }
+
+    const current = positionAt(pts, ts);
+    if (!current) continue;
+
+    const lastKnown = pts[pts.length - 1];
+    const firstKnown = pts[0];
+    if (ts > lastKnown.ts + 300) continue;
+    if (ts < firstKnown.ts) continue;
+
+    busCount++;
+    const dir = current.directionId ?? 0;
+    const delayStr = current.delaySec != null
+      ? (current.delaySec >= 0 ? `+${Math.round(current.delaySec/60)}m` : `${Math.round(current.delaySec/60)}m`)
+      : '?';
+
+    const icon = L.divIcon({
+      className: '',
+      html: `<svg width="24" height="24" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" fill="${color}" stroke="#fff" stroke-width="2" opacity="0.9"/>
+      </svg>`,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    const marker = L.marker([current.lat, current.lon], { icon }).addTo(map);
+    marker.bindPopup(`
+      <b>Route:</b> ${current.routeId}<br>
+      <b>Trip:</b> ${current.tripId}<br>
+      <b>Vehicle:</b> ${current.vehicleId || '?'}<br>
+      <b>Direction:</b> ${DIR_LABELS[dir] || dir}<br>
+      <b>Delay:</b> ${delayStr}<br>
+      <b>Lat/Lon:</b> ${current.lat.toFixed(5)}, ${current.lon.toFixed(5)}
+    `);
+    markers.push(marker);
+
+    if (current.vehicleId) {
+      const label = L.marker([current.lat, current.lon], {
+        icon: L.divIcon({
+          className: 'bus-label',
+          html: `#${current.vehicleId} ${delayStr}`,
+          iconSize: [120, 16],
+          iconAnchor: [-14, 8]
+        })
+      }).addTo(map);
+      markers.push(label);
+    }
+  }
+
+  infoEl.textContent = `${busCount} buses`;
+}
+
+slider.addEventListener('input', () => {
+  render(parseInt(slider.value));
+});
+
+playBtn.addEventListener('click', () => {
+  if (playing) {
+    playing = false;
+    clearInterval(playTimer);
+    playBtn.textContent = 'Play';
+  } else {
+    playing = true;
+    playBtn.textContent = 'Pause';
+    playTimer = setInterval(() => {
+      let v = parseInt(slider.value) + 1;
+      if (v >= data.timestamps.length) v = 0;
+      slider.value = v;
+      render(v);
+    }, 200);
+  }
+});
+</script>
+</body>
+</html>

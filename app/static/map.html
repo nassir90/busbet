@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bus Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; }
+  #map { width: 100%; height: calc(100vh - 80px); }
+  #controls {
+    height: 80px; padding: 12px 20px;
+    display: flex; align-items: center; gap: 16px;
+    background: #1a1a1a; border-top: 1px solid #333;
+  }
+  #slider { flex: 1; }
+  #time { font-size: 18px; font-variant-numeric: tabular-nums; min-width: 200px; }
+  #info { font-size: 14px; color: #999; min-width: 120px; }
+  #playBtn {
+    background: #2563eb; color: white; border: none; border-radius: 6px;
+    padding: 8px 16px; cursor: pointer; font-size: 14px;
+  }
+  #playBtn:hover { background: #1d4ed8; }
+  .bus-label {
+    background: none; border: none;
+    font-size: 13px; font-weight: 600; color: #fff;
+    text-shadow: 0 0 4px #000, 0 0 4px #000;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="controls">
+  <button id="playBtn">Play</button>
+  <input id="slider" type="range" min="0" max="0" value="0">
+  <div id="time">--:--:--</div>
+  <div id="info"></div>
+</div>
+
+<script>
+const ROUTE_COLORS = {
+  'C1': '#ef4444', 'C2': '#3b82f6', 'L51': '#22c55e', 'L53': '#f59e0b',
+};
+const DIR_SHAPES = { 0: 'Outbound', 1: 'Inbound' };
+
+const map = L.map('map').setView([53.34, -6.38], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OSM &copy; CARTO',
+  maxZoom: 19
+}).addTo(map);
+
+let data = null;
+let tripIndex = {};   // tripId → sorted array of positions
+let markers = [];
+let trailLines = {};  // tripId → polyline (grows over time)
+let playing = false;
+let playTimer = null;
+
+const slider = document.getElementById('slider');
+const timeEl = document.getElementById('time');
+const infoEl = document.getElementById('info');
+const playBtn = document.getElementById('playBtn');
+
+fetch('/positions.json')
+  .then(r => r.json())
+  .then(d => {
+    data = d;
+    slider.max = data.timestamps.length - 1;
+    slider.value = 0;
+
+    // Index positions by tripId, sorted by timestamp
+    for (const p of data.positions) {
+      if (!tripIndex[p.tripId]) tripIndex[p.tripId] = [];
+      tripIndex[p.tripId].push(p);
+    }
+    for (const pts of Object.values(tripIndex)) {
+      pts.sort((a, b) => a.ts - b.ts);
+    }
+
+    // Legend
+    const routesInData = [...new Set(data.positions.map(p => p.route))].sort();
+    const legend = L.control({ position: 'topright' });
+    legend.onAdd = () => {
+      const div = L.DomUtil.create('div');
+      div.style.cssText = 'background:#1a1a1a;padding:10px 14px;border-radius:8px;font-size:13px;color:#eee;line-height:1.8';
+      div.innerHTML = '<b>Bus Tracker</b><br>' +
+        routesInData.map(r => `<span style="color:${ROUTE_COLORS[r]||'#888'}">&#9679;</span> ${r}`).join('<br>');
+      return div;
+    };
+    legend.addTo(map);
+
+    render(0);
+  })
+  .catch(err => {
+    timeEl.textContent = 'Error loading data';
+    console.error(err);
+  });
+
+/**
+ * For a given trip, find or interpolate the position at `ts`.
+ * Returns null if the trip has no data at or before `ts`.
+ */
+const MAX_GAP = 120; // seconds — don't interpolate across gaps larger than this
+
+function positionAt(tripPositions, ts) {
+  const pts = tripPositions;
+  if (pts.length === 0 || ts < pts[0].ts) return null;
+
+  // Find the last position at or before ts
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (pts[mid].ts <= ts) lo = mid; else hi = mid - 1;
+  }
+  const before = pts[lo];
+
+  // If this is the last point or ts is exactly at this point, use it directly
+  if (lo === pts.length - 1 || before.ts === ts) return before;
+
+  const after = pts[lo + 1];
+
+  // Don't interpolate across large time gaps (missing data / GPS dropout)
+  if (after.ts - before.ts > MAX_GAP) return before;
+
+  // Don't interpolate across large spatial jumps (vehicle reuse / glitch)
+  if (Math.abs(after.lat - before.lat) > 0.01 || Math.abs(after.lon - before.lon) > 0.01) return before;
+
+  const t = (ts - before.ts) / (after.ts - before.ts);
+  return {
+    ...before,
+    lat: before.lat + (after.lat - before.lat) * t,
+    lon: before.lon + (after.lon - before.lon) * t,
+    delaySec: after.delaySec,
+  };
+}
+
+function render(idx) {
+  const ts = data.timestamps[idx];
+  const time = new Date(ts * 1000);
+  timeEl.textContent = time.toLocaleTimeString('en-IE', { hour12: false }) +
+    '  ' + time.toLocaleDateString('en-IE');
+
+  // Clear markers
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  // Clear old trail lines
+  for (const lines of Object.values(trailLines)) {
+    for (const line of lines) map.removeLayer(line);
+  }
+  trailLines = {};
+
+  let busCount = 0;
+
+  for (const [tripId, pts] of Object.entries(tripIndex)) {
+    // Get all positions up to current time (for trail)
+    const trailPts = pts.filter(p => p.ts <= ts);
+    if (trailPts.length === 0) continue;
+
+    const color = ROUTE_COLORS[pts[0].route] || '#888';
+
+    // Draw trail, breaking at large gaps
+    if (trailPts.length >= 2) {
+      const segments = [[[trailPts[0].lat, trailPts[0].lon]]];
+      for (let i = 1; i < trailPts.length; i++) {
+        const dt = trailPts[i].ts - trailPts[i-1].ts;
+        const dlat = Math.abs(trailPts[i].lat - trailPts[i-1].lat);
+        const dlon = Math.abs(trailPts[i].lon - trailPts[i-1].lon);
+        if (dt > MAX_GAP || dlat > 0.01 || dlon > 0.01) {
+          segments.push([]);  // start new segment
+        }
+        segments[segments.length - 1].push([trailPts[i].lat, trailPts[i].lon]);
+      }
+      // Add interpolated position to last segment
+      const interp = positionAt(pts, ts);
+      if (interp) segments[segments.length - 1].push([interp.lat, interp.lon]);
+
+      for (const seg of segments) {
+        if (seg.length < 2) continue;
+        const line = L.polyline(seg, { color, weight: 3, opacity: 0.4 }).addTo(map);
+        if (!trailLines[tripId]) trailLines[tripId] = [];
+        trailLines[tripId].push(line);
+      }
+    }
+
+    // Place bus at interpolated current position
+    const current = positionAt(pts, ts);
+    if (!current) continue;
+
+    // Don't show buses whose last known position is too stale (>5 min)
+    const lastKnown = pts[pts.length - 1];
+    const firstKnown = pts[0];
+    if (ts > lastKnown.ts + 300) continue; // bus has gone off-feed
+    if (ts < firstKnown.ts) continue;
+
+    busCount++;
+    const dir = current.directionId ?? 0;
+    const delayStr = current.delaySec != null
+      ? (current.delaySec >= 0 ? `+${Math.round(current.delaySec/60)}m` : `${Math.round(current.delaySec/60)}m`)
+      : '?';
+
+    const icon = L.divIcon({
+      className: '',
+      html: `<svg width="24" height="24" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" fill="${color}" stroke="#fff" stroke-width="2" opacity="0.9"/>
+      </svg>`,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    const marker = L.marker([current.lat, current.lon], { icon }).addTo(map);
+    marker.bindPopup(`
+      <b>Route:</b> ${current.route}<br>
+      <b>Trip:</b> ${current.tripId}<br>
+      <b>Vehicle:</b> ${current.vehicleId || '?'}<br>
+      <b>Direction:</b> ${DIR_SHAPES[dir] || dir}<br>
+      <b>Delay:</b> ${delayStr}<br>
+      <b>Lat/Lon:</b> ${current.lat.toFixed(5)}, ${current.lon.toFixed(5)}
+    `);
+    markers.push(marker);
+
+    if (current.vehicleId) {
+      const label = L.marker([current.lat, current.lon], {
+        icon: L.divIcon({
+          className: 'bus-label',
+          html: `${current.route} #${current.vehicleId} ${delayStr}`,
+          iconSize: [120, 16],
+          iconAnchor: [-14, 8]
+        })
+      }).addTo(map);
+      markers.push(label);
+    }
+  }
+
+  infoEl.textContent = `${busCount} buses`;
+}
+
+slider.addEventListener('input', () => {
+  render(parseInt(slider.value));
+});
+
+playBtn.addEventListener('click', () => {
+  if (playing) {
+    playing = false;
+    clearInterval(playTimer);
+    playBtn.textContent = 'Play';
+  } else {
+    playing = true;
+    playBtn.textContent = 'Pause';
+    playTimer = setInterval(() => {
+      let v = parseInt(slider.value) + 1;
+      if (v >= data.timestamps.length) v = 0;
+      slider.value = v;
+      render(v);
+    }, 200);
+  }
+});
+</script>
+</body>
+</html>
