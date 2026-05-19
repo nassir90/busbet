@@ -1,0 +1,9 @@
+# Append this to the `scrape_configs:` list in /etc/prometheus/prometheus.yml
+# and reload prometheus (systemctl reload prometheus  or  kill -HUP).
+  - job_name: "busbet"
+    scrape_interval: 60s
+    scrape_timeout: 15s
+    static_configs:
+      - targets: ["localhost:9200"]
+        labels:
+          app: "busbet"

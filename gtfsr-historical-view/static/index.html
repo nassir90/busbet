@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dublin Bus Explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+
+  :root {
+    --bg: #1b1b1b;
+    --bg2: #252525;
+    --bg3: #2f2f2f;
+    --hdr: #111111;
+    --accent: #5c1020;
+    --accent2: #7a1530;
+    --border: #3a3a3a;
+    --text: #e2e2e2;
+    --text2: #999;
+    --tag-bg: #333;
+    --tag-text: #ccc;
+    --card-bg: rgba(20,20,20,0.88);
+    --card-border: rgba(255,255,255,0.10);
+    --tb-bg: rgba(14,14,14,0.92);
+  }
+  body.light {
+    --bg: #efefef;
+    --bg2: #ffffff;
+    --bg3: #e4e4e4;
+    --hdr: #1b1b1b;
+    --border: #cccccc;
+    --text: #1a1a1a;
+    --text2: #666;
+    --tag-bg: #ddd;
+    --tag-text: #333;
+    --card-bg: rgba(248,248,248,0.90);
+    --card-border: rgba(0,0,0,0.12);
+    --tb-bg: rgba(240,240,240,0.92);
+  }
+
+  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: var(--text); background: var(--bg); }
+
+  /* HEADER */
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    height: 52px;
+    background: linear-gradient(to bottom, rgba(8,8,8,0.97) 60%, rgba(60,8,16,0.55) 100%);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    display: flex; align-items: center; padding: 0 14px; gap: 12px;
+  }
+  body.light #header { background: linear-gradient(to bottom, rgba(20,20,20,0.96) 60%, rgba(60,8,16,0.6) 100%); }
+  #header .logo {
+    width: 30px; height: 30px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #fff; letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+  #header .title-block { flex: 1; min-width: 0; overflow: hidden; }
+  #header .title-block h1 {
+    font-size: 14px; font-weight: 700; color: #fff; letter-spacing: 0.03em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #header .title-block p {
+    font-size: 10px; color: #888; margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #header .hdr-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  #header .hdr-date {
+    font-size: 10px; color: #777; margin-right: 6px;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .hdr-btn {
+    background: none; border: 1px solid #444; color: #bbb;
+    padding: 4px 10px; font-size: 10px; cursor: pointer; letter-spacing: 0.06em;
+    font-family: inherit; text-transform: uppercase; white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .hdr-btn:hover { background: rgba(255,255,255,0.08); border-color: #666; }
+
+  @media (max-width: 600px) {
+    #header { padding: 0 10px; gap: 8px; }
+    #header .title-block p { display: none; }
+    #header .hdr-date { display: none; }
+    #header .title-block h1 { font-size: 13px; }
+    .hdr-btn { padding: 4px 7px; letter-spacing: 0.03em; }
+  }
+
+  #map-full { position: fixed; inset: 0; z-index: 0; }
+  #leaflet-map { width: 100%; height: 100%; }
+
+  /* FLOATING CARD COLUMN */
+  #card-col {
+    position: fixed;
+    top: 60px; left: 10px; bottom: 100px;
+    width: 264px;
+    z-index: 500;
+    overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 2px 2px 4px 2px;
+    pointer-events: none;
+    transition: transform 0.25s ease, opacity 0.2s ease;
+  }
+  #card-col::-webkit-scrollbar { width: 3px; }
+  #card-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
+  #card-col.hidden {
+    transform: translateX(-290px);
+    opacity: 0;
+    pointer-events: none !important;
+  }
+
+  /* Mobile sidebar toggle — hidden on desktop */
+  #sidebar-toggle {
+    position: fixed;
+    top: 50%; left: 10px;
+    transform: translateY(-50%);
+    z-index: 600;
+    width: 20px; height: 44px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text2); font-size: 10px;
+    transition: left 0.25s ease;
+    user-select: none;
+  }
+  #sidebar-toggle.expanded { left: 282px; }
+  @media (min-width: 601px) { #sidebar-toggle { display: none; } }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    overflow: hidden;
+    pointer-events: all;
+    flex-shrink: 0;
+  }
+
+  .sec-hdr {
+    background: var(--accent);
+    padding: 5px 11px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #e8c8ce;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sec-hdr-collapse {
+    cursor: pointer; font-size: 11px; line-height: 1; color: rgba(232,200,206,0.6);
+    transition: color 0.15s;
+  }
+  .sec-hdr-collapse:hover { color: #fff; }
+
+  .s-body { padding: 9px 11px; }
+  .s-label { font-size: 9px; color: var(--text2); letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 5px; }
+  .s-input {
+    width: 100%; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border);
+    color: var(--text); padding: 5px 8px; font-size: 12px;
+    font-family: inherit; outline: none;
+  }
+  body.light .s-input { background: rgba(0,0,0,0.06); }
+  .s-input:focus { border-color: var(--accent2); }
+  .s-readonly {
+    font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums;
+    padding: 3px 0;
+  }
+
+  .route-tags { display: flex; flex-wrap: wrap; gap: 4px; max-height: 130px; overflow-y: auto; }
+  .route-tag {
+    padding: 3px 8px; font-size: 11px; cursor: pointer;
+    background: rgba(255,255,255,0.06); color: var(--text2);
+    border: 1px solid var(--card-border);
+    letter-spacing: 0.04em;
+    transition: background 0.1s, color 0.1s;
+  }
+  body.light .route-tag { background: rgba(0,0,0,0.06); }
+  .route-tag:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+  body.light .route-tag:hover { background: rgba(0,0,0,0.12); }
+  .route-tag.active { color: #111 !important; border-color: transparent; }
+
+  .stat-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  .stat-row:last-child { margin-bottom: 0; }
+  .stat-label { font-size: 10px; color: var(--text2); }
+  .stat-value { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+  .stat-value.hi { color: #d0a040; }
+
+  .bus-list { max-height: 280px; overflow-y: auto; }
+  .bus-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-size: 10px; cursor: pointer;
+  }
+  body.light .bus-item { border-bottom-color: rgba(0,0,0,0.08); }
+  .bus-item:last-child { border-bottom: none; }
+  .bus-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .bus-route { font-weight: 700; width: 36px; flex-shrink: 0; font-size: 10px; }
+  .bus-id { color: var(--text2); flex: 1; font-size: 9px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bus-time { color: var(--text2); font-size: 9px; font-variant-numeric: tabular-nums; }
+
+  /* BOTTOM TIME BAR — full width, rows: slider · ticks · controls */
+  #time-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--tb-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--card-border);
+    padding: 10px 20px 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 600;
+  }
+
+  .time-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .play-btn {
+    width: 28px; height: 28px; flex-shrink: 0;
+    background: var(--accent); border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12px;
+    transition: background 0.15s;
+  }
+  .play-btn:hover { background: var(--accent2); }
+  .time-display {
+    font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--text); min-width: 150px; letter-spacing: 0.03em;
+  }
+  .speed-btn {
+    background: rgba(255,255,255,0.07); border: 1px solid var(--card-border); color: var(--text2);
+    padding: 3px 7px; font-size: 10px; cursor: pointer; font-family: inherit;
+    letter-spacing: 0.05em;
+    transition: background 0.1s;
+  }
+  body.light .speed-btn { background: rgba(0,0,0,0.07); }
+  .speed-btn:hover, .speed-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .slider-wrap { width: 100%; position: relative; }
+  input[type=range].timeline {
+    width: 100%; height: 3px; appearance: none;
+    background: rgba(255,255,255,0.12); outline: none; cursor: pointer; border-radius: 0;
+  }
+  body.light input[type=range].timeline { background: rgba(0,0,0,0.15); }
+  input[type=range].timeline::-webkit-slider-thumb {
+    appearance: none; width: 14px; height: 14px;
+    background: var(--accent); cursor: pointer;
+    border: 2px solid #fff; border-radius: 50%;
+  }
+  input[type=range].timeline::-moz-range-thumb {
+    width: 14px; height: 14px; background: var(--accent);
+    cursor: pointer; border: 2px solid #fff; border-radius: 50%;
+  }
+  .time-ticks { display: flex; justify-content: space-between; }
+  .time-tick { font-size: 9px; color: var(--text2); font-variant-numeric: tabular-nums; cursor: pointer; user-select: none; }
+  .time-tick:hover { color: var(--text); }
+
+  .leaflet-container { background: var(--bg); }
+  .leaflet-tooltip {
+    background: rgba(20,20,20,0.95) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    color: #e2e2e2 !important;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+    font-size: 11px !important;
+    padding: 5px 9px !important;
+    border-radius: 0 !important;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.5) !important;
+    backdrop-filter: blur(8px) !important;
+  }
+  .leaflet-popup-content-wrapper {
+    background: rgba(20,20,20,0.95) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    color: #e2e2e2 !important;
+    border-radius: 0 !important;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.5) !important;
+  }
+  .leaflet-popup-content-wrapper .leaflet-popup-content {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+    font-size: 11px !important;
+    line-height: 1.5 !important;
+    margin: 8px 12px !important;
+  }
+  .leaflet-popup-tip { background: rgba(20,20,20,0.95) !important; }
+  body.light .leaflet-popup-content-wrapper,
+  body.light .leaflet-popup-tip { background: rgba(248,248,248,0.96) !important; color: #1a1a1a !important; }
+
+  .setting-link {
+    font-size: 11px; color: var(--text); cursor: pointer; padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: color 0.12s;
+  }
+  body.light .setting-link { border-bottom-color: rgba(0,0,0,0.06); }
+  .setting-link:hover { color: #d0a040; }
+  .setting-link:last-child { border-bottom: none; }
+
+  .toggle-row { display: flex; justify-content: space-between; align-items: center; }
+  .toggle-sw { width: 30px; height: 15px; background: rgba(255,255,255,0.15); position: relative; cursor: pointer; border-radius: 8px; transition: background 0.2s; }
+  body.light .toggle-sw { background: rgba(0,0,0,0.15); }
+  .toggle-sw.on { background: var(--accent); }
+  .toggle-sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+  .toggle-sw.on::after { transform: translateX(15px); }
+
+  .card select {
+    width: 100%; background: rgba(255,255,255,0.07); border: 1px solid var(--card-border);
+    color: var(--text); padding: 4px 6px; font-size: 11px; font-family: inherit; outline: none;
+  }
+  body.light .card select { background: rgba(0,0,0,0.06); }
+  .card input[type=range] { width: 100%; }
+
+  .loading-overlay {
+    position: fixed; inset: 0; z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(14,14,14,0.85); color: var(--text);
+    font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+// ── COLOUR PALETTE (auto-assigned per route, stable by index) ───────────────
+const PALETTE = [
+  '#ef4444','#3b82f6','#22c55e','#f59e0b','#a855f7',
+  '#ec4899','#14b8a6','#f97316','#6366f1','#84cc16',
+  '#f0c060','#60c0f0','#a0e090','#e090c0','#f09060',
+  '#d94a8a','#5ad1b9','#c988ff','#ffaa33','#66cc66',
+];
+
+const DIR_LABELS = { 0: 'Outbound', 1: 'Inbound' };
+const MAX_GAP = 120; // seconds; larger gaps break trail segments
+const DUBLIN_LAT = 53.34;
+const COS_DUBLIN = Math.cos(DUBLIN_LAT * Math.PI / 180);
+
+// Flat-earth distance in metres — good to cm at Dublin-sized scales.
+function distM(lat1, lon1, lat2, lon2) {
+  const dlat = (lat1 - lat2) * 111320;
+  const dlon = (lon1 - lon2) * 111320 * COS_DUBLIN;
+  return Math.sqrt(dlat * dlat + dlon * dlon);
+}
+
+function formatTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('en-IE', { hour12: false });
+}
+function formatDate(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString('en-IE', { year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+
+// Find effective trip end: walk backwards summing distance; once we've
+// travelled > 50m cumulatively, that's the last moving point. Filters out
+// post-arrival GPS drift while the bus idles at the terminus. Calibrated
+// against analyze-tail.ts (C2 buses park for up to 31m with <50m drift).
+function tripEndTime(pts) {
+  if (pts.length < 3) return pts[pts.length - 1].ts;
+  const COS_LAT = Math.cos(53.34 * Math.PI / 180);
+  let cumDist = 0;
+  for (let i = pts.length - 1; i > 0; i--) {
+    const dlat = (pts[i].lat - pts[i-1].lat) * 111320;
+    const dlon = (pts[i].lon - pts[i-1].lon) * 111320 * COS_LAT;
+    cumDist += Math.sqrt(dlat * dlat + dlon * dlon);
+    if (cumDist > 50) return pts[i].ts;
+  }
+  return pts[pts.length - 1].ts;
+}
+
+// Walk backward from the sample at/before ts until we find one ≥20m away.
+// Returns heading in degrees (0=N, 90=E, clockwise) or null if the bus hasn't
+// moved meaningfully in the last 10 minutes. NTA's GTFS-R feed populates the
+// `bearing` field but always with 0, so we derive it from position deltas.
+function headingAt(pts, ts, cur) {
+  if (pts.length < 2 || !cur) return null;
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (pts[mid].ts <= ts) lo = mid; else hi = mid - 1;
+  }
+  for (let i = lo; i >= 0; i--) {
+    if (cur.ts - pts[i].ts > 600) break;
+    const d = distM(cur.lat, cur.lon, pts[i].lat, pts[i].lon);
+    if (d >= 20) {
+      const dlat = (cur.lat - pts[i].lat) * 111320;
+      const dlon = (cur.lon - pts[i].lon) * 111320 * COS_DUBLIN;
+      return (Math.atan2(dlon, dlat) * 180 / Math.PI + 360) % 360;
+    }
+  }
+  return null;
+}
+
+// Binary-search a trip's timeline for position at ts, interpolating linearly
+// between the two nearest samples. Returns the last-known sample when the gap
+// is too long or the jump too large (likely GPS error).
+function positionAt(pts, ts) {
+  if (pts.length === 0 || ts < pts[0].ts) return null;
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (pts[mid].ts <= ts) lo = mid; else hi = mid - 1;
+  }
+  const before = pts[lo];
+  if (lo === pts.length - 1 || before.ts === ts) return before;
+  const after = pts[lo + 1];
+  if (after.ts - before.ts > MAX_GAP) return before;
+  if (Math.abs(after.lat - before.lat) > 0.01 || Math.abs(after.lon - before.lon) > 0.01) return before;
+  const t = (ts - before.ts) / (after.ts - before.ts);
+  return {
+    ...before,
+    lat: before.lat + (after.lat - before.lat) * t,
+    lon: before.lon + (after.lon - before.lon) * t,
+    delaySec: after.delaySec,
+  };
+}
+
+// Defined outside App so its identity is stable across renders; if this were
+// nested inside App, every render would create a new component type and React
+// would unmount+remount the whole subtree — losing scroll position in lists.
+const Card = ({ collapsed, onToggle, title, children }) => (
+  <div className="card">
+    <div className="sec-hdr">
+      {title}
+      <span className="sec-hdr-collapse" onClick={onToggle}>
+        {collapsed ? '▸' : '▾'}
+      </span>
+    </div>
+    {!collapsed && children}
+  </div>
+);
+
+// ── APP ────────────────────────────────────────────────────────────────────
+function App() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Loaded data
+  const [data, setData] = useState(null); // { timestamps, positions }
+  const [tripIndex, setTripIndex] = useState({}); // tripId -> [pts]
+  const [routeList, setRouteList] = useState([]); // sorted route short names
+  const [routeColors, setRouteColors] = useState({}); // route -> #hex
+
+  // UI state
+  const [dark, setDark] = useState(true);
+  const [activeRoutes, setActiveRoutes] = useState(null); // Set or null (= all)
+  const [tsIndex, setTsIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(30); // multiplier: simulated seconds per real second
+  const [busSize, setBusSize] = useState(22);
+  const [showTrails, setShowTrails] = useState(true);
+  const [collapsed, setCollapsed] = useState({});
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+
+  const mapRef = useRef(null);
+  const tileRef = useRef(null);
+  const markerLayerRef = useRef(null);
+  const trailLayerRef = useRef(null);
+  const playRaf = useRef(null);
+  // Mutable playback position so scrubbing can interrupt an in-flight rAF loop
+  // without tearing down the effect on every frame.
+  const playStateRef = useRef({ idx: 0, virt: 0 });
+  // Setter used everywhere tsIndex changes; keeps the ref in sync.
+  const setTs = useCallback((value) => {
+    const next = typeof value === 'function' ? value(playStateRef.current.idx) : value;
+    playStateRef.current.idx = next;
+    playStateRef.current.virt = 0; // marker: "resync from state" on next frame
+    setTsIndex(next);
+  }, []);
+
+  // Load positions.json once
+  useEffect(() => {
+    fetch('positions.json')
+      .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+      .then(d => {
+        const idx = {};
+        for (const p of d.positions) (idx[p.tripId] ||= []).push(p);
+        for (const pts of Object.values(idx)) pts.sort((a,b) => a.ts - b.ts);
+        const routes = [...new Set(d.positions.map(p => p.route).filter(Boolean))].sort();
+        const colors = Object.fromEntries(routes.map((r, i) => [r, PALETTE[i % PALETTE.length]]));
+        setData(d);
+        setTripIndex(idx);
+        setRouteList(routes);
+        setRouteColors(colors);
+        setActiveRoutes(new Set(routes));
+        setLoading(false);
+      })
+      .catch(err => { setError(err.message || String(err)); setLoading(false); });
+  }, []);
+
+  // Dark body class
+  useEffect(() => { document.body.classList.toggle('light', !dark); }, [dark]);
+
+  // Init Leaflet once data is ready
+  useEffect(() => {
+    if (!data || mapRef.current) return;
+    const map = L.map('leaflet-map', { center: [53.3498, -6.2603], zoom: 12, zoomControl: false });
+    mapRef.current = map;
+    markerLayerRef.current = L.layerGroup().addTo(map);
+    trailLayerRef.current = L.layerGroup().addTo(map);
+    updateTiles(map, dark);
+    return () => { map.remove(); mapRef.current = null; };
+  }, [data]);
+
+  function updateTiles(map, isDark) {
+    if (tileRef.current) tileRef.current.remove();
+    const url = isDark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    tileRef.current = L.tileLayer(url, {
+      attribution: '© CartoDB © OpenStreetMap contributors',
+      maxZoom: 19, subdomains: 'abcd',
+    }).addTo(map);
+  }
+  useEffect(() => { if (mapRef.current) updateTiles(mapRef.current, dark); }, [dark]);
+
+  // Render current frame
+  const render = useCallback((idx) => {
+    if (!data || !mapRef.current) return;
+    const ts = data.timestamps[idx];
+    if (ts == null) return;
+
+    const marker = markerLayerRef.current;
+    const trail = trailLayerRef.current;
+    marker.clearLayers();
+    trail.clearLayers();
+
+    const active = activeRoutes;
+
+    for (const [tripId, pts] of Object.entries(tripIndex)) {
+      const first = pts[0];
+      if (active && !active.has(first.route)) continue;
+      const end = tripEndTime(pts);
+      if (ts > end + 60) continue;
+      if (ts < first.ts) continue;
+
+      const trailPts = pts.filter(p => p.ts <= ts);
+      if (trailPts.length === 0) continue;
+      const color = routeColors[first.route] || '#aaa';
+
+      // Segmented trails — break on gaps
+      if (showTrails && trailPts.length >= 2) {
+        const segments = [[[trailPts[0].lat, trailPts[0].lon]]];
+        for (let i = 1; i < trailPts.length; i++) {
+          const dt = trailPts[i].ts - trailPts[i-1].ts;
+          const dlat = Math.abs(trailPts[i].lat - trailPts[i-1].lat);
+          const dlon = Math.abs(trailPts[i].lon - trailPts[i-1].lon);
+          if (dt > MAX_GAP || dlat > 0.01 || dlon > 0.01) segments.push([]);
+          segments[segments.length - 1].push([trailPts[i].lat, trailPts[i].lon]);
+        }
+        const interp = positionAt(pts, ts);
+        if (interp) segments[segments.length - 1].push([interp.lat, interp.lon]);
+        for (const seg of segments) {
+          if (seg.length < 2) continue;
+          trail.addLayer(L.polyline(seg, { color, weight: 2, opacity: 0.35 }));
+        }
+      }
+
+      const current = positionAt(pts, ts);
+      if (!current) continue;
+
+      const dir = current.directionId ?? 0;
+      const delayStr = current.delaySec != null
+        ? (current.delaySec >= 0 ? `+${Math.round(current.delaySec/60)}m` : `${Math.round(current.delaySec/60)}m`)
+        : '—';
+      const size = busSize;
+      const label = current.route || '?';
+      const heading = headingAt(pts, ts, current);
+      // Rectangular tag oriented in the direction of travel: the whole
+      // "[P29]>" shape (box + arrow on the long edge) rotates as a unit.
+      // Arrow points along +x in local coords; rotating by heading-90° makes
+      // it match the heading (since heading 0=north, +x=east is heading 90).
+      const boxW = Math.max(26, Math.round(size * 1.2));
+      const boxH = Math.max(14, Math.round(size * 0.7));
+      const fontSize = Math.max(9, Math.round(boxH * 0.72));
+      const arrowLen = 7;
+      const rot = heading == null ? 0 : heading - 90;
+      // Normalise to (-180, 180]. If the box would end up rotated past a
+      // quarter-turn either way, the label would be upside-down — flip it back
+      // 180° so it stays readable. The arrow (outside the text div) is not
+      // flipped, so it continues to point in the travel direction.
+      const normRot = ((rot + 180) % 360 + 360) % 360 - 180;
+      const textFlip = Math.abs(normRot) > 90 ? 180 : 0;
+      const arrowSvg = heading == null ? '' : `
+          <svg width="1" height="1" style="position:absolute;left:100%;top:50%;overflow:visible;">
+            <polygon points="0,0 0,${-boxH/2} ${arrowLen},0 0,${boxH/2}"
+                     fill="${color}" stroke="rgba(0,0,0,0.75)"
+                     stroke-width="1" stroke-linejoin="round"/>
+          </svg>`;
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="width:${boxW}px;height:${boxH}px;position:relative;
+                          transform:rotate(${rot}deg);transform-origin:50% 50%;">
+            <div style="position:absolute;inset:0;background:${color};
+                        border:1.5px solid rgba(0,0,0,0.75);
+                        display:flex;align-items:center;justify-content:center;
+                        color:#111;font-size:${fontSize}px;font-weight:800;letter-spacing:-0.02em;
+                        transform:rotate(${textFlip}deg);">
+              ${label}
+            </div>
+            ${arrowSvg}
+          </div>`,
+        iconSize: [boxW, boxH],
+        iconAnchor: [boxW/2, boxH/2],
+      });
+      const m = L.marker([current.lat, current.lon], { icon });
+      m.bindTooltip(
+        `<b>Route ${current.route}</b><br/>` +
+        `Trip ${current.tripId}<br/>` +
+        `Vehicle ${current.vehicleId || '—'}<br/>` +
+        `${DIR_LABELS[dir] || dir} · Delay ${delayStr}`,
+        { direction: 'top', offset: [0, -size/2] }
+      );
+      m.bindPopup(
+        `<b>Route ${current.route}</b><br/>` +
+        `<b>Trip:</b> ${current.tripId}<br/>` +
+        `<b>Vehicle:</b> ${current.vehicleId || '—'}<br/>` +
+        `<b>Direction:</b> ${DIR_LABELS[dir] || dir}<br/>` +
+        `<b>Delay:</b> ${delayStr}<br/>` +
+        `<b>Lat/Lon:</b> ${current.lat.toFixed(5)}, ${current.lon.toFixed(5)}`
+      );
+      marker.addLayer(m);
+    }
+  }, [data, tripIndex, activeRoutes, routeColors, busSize, showTrails]);
+
+  useEffect(() => { render(tsIndex); }, [render, tsIndex]);
+
+  // Playback: advance timestamp index by `speed` simulated seconds per real second.
+  // All mutable state lives on playStateRef so scrubbing via setTs can reseed the
+  // loop mid-flight; the effect does NOT re-subscribe when tsIndex changes.
+  useEffect(() => {
+    if (!playing || !data) return;
+    playStateRef.current.idx = tsIndex;
+    playStateRef.current.virt = data.timestamps[tsIndex];
+    let last = performance.now();
+    const step = (now) => {
+      const dtReal = (now - last) / 1000;
+      last = now;
+      const st = playStateRef.current;
+      // virt === 0 means setTs just scrubbed — reseed virt from the new idx.
+      if (st.virt === 0) st.virt = data.timestamps[st.idx];
+      st.virt += dtReal * speed;
+      while (st.idx + 1 < data.timestamps.length && data.timestamps[st.idx + 1] <= st.virt) st.idx++;
+      if (st.idx >= data.timestamps.length - 1) { st.idx = 0; st.virt = data.timestamps[0]; }
+      setTsIndex(st.idx);
+      playRaf.current = requestAnimationFrame(step);
+    };
+    playRaf.current = requestAnimationFrame(step);
+    return () => { if (playRaf.current) cancelAnimationFrame(playRaf.current); };
+  }, [playing, speed, data]);
+
+  // Space bar toggles play/pause. Ignore when focus is in an input/select so
+  // typing in filter fields still works.
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.code !== 'Space') return;
+      const t = e.target;
+      const tag = t?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      setPlaying(p => !p);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Ticks — pick hour boundaries within data range
+  const ticks = useMemo(() => {
+    if (!data) return [];
+    const ts0 = data.timestamps[0], tsN = data.timestamps[data.timestamps.length - 1];
+    if (ts0 == null) return [];
+    const out = [];
+    // step in hours; aim for ~8 ticks
+    const hours = Math.max(1, Math.round((tsN - ts0) / 3600 / 8));
+    for (let t = Math.ceil(ts0 / 3600) * 3600; t <= tsN; t += hours * 3600) {
+      // find closest index
+      let lo = 0, hi = data.timestamps.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (data.timestamps[mid] < t) lo = mid + 1; else hi = mid;
+      }
+      out.push({ ts: t, idx: lo });
+    }
+    return out;
+  }, [data]);
+
+  // Active buses at current ts
+  const activeBuses = useMemo(() => {
+    if (!data) return [];
+    const ts = data.timestamps[tsIndex];
+    const out = [];
+    for (const [tripId, pts] of Object.entries(tripIndex)) {
+      const first = pts[0];
+      if (activeRoutes && !activeRoutes.has(first.route)) continue;
+      if (ts < first.ts) continue;
+      if (ts > tripEndTime(pts) + 60) continue;
+      out.push({ tripId, pts, current: positionAt(pts, ts) });
+    }
+    return out;
+  }, [data, tripIndex, activeRoutes, tsIndex]);
+
+  function toggleRoute(rk) {
+    setActiveRoutes(prev => {
+      const next = new Set(prev);
+      next.has(rk) ? next.delete(rk) : next.add(rk);
+      return next;
+    });
+  }
+  function toggleCollapse(id) { setCollapsed(p => ({ ...p, [id]: !p[id] })); }
+  const cardProps = (id) => ({ collapsed: !!collapsed[id], onToggle: () => toggleCollapse(id) });
+
+  if (loading) return <div className="loading-overlay">Loading positions…</div>;
+  if (error)   return <div className="loading-overlay">Failed to load positions.json: {error}</div>;
+
+  const curTs = data.timestamps[tsIndex];
+  const dateStr = formatDate(curTs);
+  const firstDate = formatDate(data.timestamps[0]);
+  const lastDate  = formatDate(data.timestamps[data.timestamps.length - 1]);
+
+  return (
+    <>
+      <div id="map-full"><div id="leaflet-map" /></div>
+
+      <div id="header">
+        <div className="title-block">
+          <h1>Dublin Bus Trip Archive</h1>
+        </div>
+        <div className="hdr-actions">
+          <button className="hdr-btn" onClick={() => setDark(d => !d)}>
+            {dark ? 'Light Mode' : 'Dark Mode'}
+          </button>
+        </div>
+      </div>
+
+      <div id="sidebar-toggle"
+        className={!sidebarHidden ? 'expanded' : ''}
+        onClick={() => setSidebarHidden(h => !h)}>
+        {sidebarHidden ? '▶' : '◀'}
+      </div>
+
+      <div id="card-col" className={sidebarHidden ? 'hidden' : ''}>
+
+        <Card {...cardProps('date')} title="Date">
+          <div className="s-body">
+            <div className="s-label">Data Range</div>
+            <div className="s-readonly">{firstDate}{firstDate !== lastDate ? ` → ${lastDate}` : ''}</div>
+            <div className="s-label" style={{marginTop:8}}>Current</div>
+            <div className="s-readonly">{dateStr} {formatTime(curTs)}</div>
+          </div>
+        </Card>
+
+        <Card {...cardProps('routes')} title={`Routes (${routeList.length})`}>
+          <div className="s-body">
+            <div className="route-tags">
+              {routeList.map(rk => {
+                const on = activeRoutes && activeRoutes.has(rk);
+                return (
+                  <div key={rk}
+                    className={`route-tag ${on ? 'active' : ''}`}
+                    onClick={() => toggleRoute(rk)}
+                    style={on ? { background: routeColors[rk], color: '#111' } : {}}>
+                    {rk}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Card>
+
+        <Card {...cardProps('stats')} title="Live Stats">
+          <div className="s-body">
+            <div className="stat-row">
+              <span className="stat-label">Active Buses</span>
+              <span className="stat-value hi">{activeBuses.length}</span>
+            </div>
+            <div className="stat-row">
+              <span className="stat-label">Current Time</span>
+              <span className="stat-value">{formatTime(curTs)}</span>
+            </div>
+            <div className="stat-row">
+              <span className="stat-label">Routes Shown</span>
+              <span className="stat-value">{activeRoutes?.size ?? routeList.length} / {routeList.length}</span>
+            </div>
+            <div className="stat-row">
+              <span className="stat-label">Total Trips</span>
+              <span className="stat-value">{Object.keys(tripIndex).length.toLocaleString()}</span>
+            </div>
+            <div className="stat-row">
+              <span className="stat-label">Frame</span>
+              <span className="stat-value">{tsIndex + 1} / {data.timestamps.length}</span>
+            </div>
+          </div>
+        </Card>
+
+        <Card {...cardProps('vehicles')} title="Active Vehicles">
+          <div className="s-body bus-list" style={{paddingTop:7}}>
+            {activeBuses.slice(0, 60).map(b => (
+              <div key={b.tripId} className="bus-item">
+                <div className="bus-dot" style={{background: routeColors[b.pts[0].route] || '#aaa'}} />
+                <span className="bus-route">{b.pts[0].route}</span>
+                <span style={{flex:1}} />
+                <span className="bus-time">
+                  {b.current?.delaySec != null
+                    ? (b.current.delaySec >= 0 ? `+${Math.round(b.current.delaySec/60)}m` : `${Math.round(b.current.delaySec/60)}m`)
+                    : '—'}
+                </span>
+              </div>
+            ))}
+            {activeBuses.length > 60 && (
+              <div style={{fontSize:9, color:'var(--text2)', paddingTop:5}}>
+                +{activeBuses.length - 60} more vehicles
+              </div>
+            )}
+            {activeBuses.length === 0 && (
+              <div style={{fontSize:10, color:'var(--text2)'}}>No active vehicles at this time.</div>
+            )}
+          </div>
+        </Card>
+
+        <Card {...cardProps('settings')} title="Settings & Actions">
+          <div className="s-body" style={{display:'flex',flexDirection:'column',gap:0}}>
+            <div className="setting-link" onClick={() => setDark(d=>!d)}>
+              Theme: switch to {dark ? 'light' : 'dark'} mode
+            </div>
+            <div className="setting-link" onClick={() => setActiveRoutes(new Set(routeList))}>
+              Routes: show all
+            </div>
+            <div className="setting-link" onClick={() => setActiveRoutes(new Set())}>
+              Routes: hide all
+            </div>
+            <div className="setting-link" onClick={() => setShowTrails(s => !s)}>
+              Trails: {showTrails ? 'hide' : 'show'}
+            </div>
+            <div className="setting-link" onClick={() => { setPlaying(false); setTs(0); }}>
+              Playback: rewind to start
+            </div>
+          </div>
+        </Card>
+
+        <Card {...cardProps('tweaks')} title="Tweaks">
+          <div className="s-body" style={{display:'flex',flexDirection:'column',gap:10}}>
+            <div>
+              <div className="s-label" style={{marginBottom:6}}>Theme</div>
+              <div className="toggle-row">
+                <span style={{fontSize:11}}>Dark Mode</span>
+                <div className={`toggle-sw ${dark?'on':''}`} onClick={() => setDark(d=>!d)} />
+              </div>
+            </div>
+            <div>
+              <div className="s-label" style={{marginBottom:6}}>Trails</div>
+              <div className="toggle-row">
+                <span style={{fontSize:11}}>Show trails</span>
+                <div className={`toggle-sw ${showTrails?'on':''}`} onClick={() => setShowTrails(s=>!s)} />
+              </div>
+            </div>
+            <div>
+              <div className="s-label" style={{marginBottom:4}}>Bus Marker Size ({busSize}px)</div>
+              <input type="range" min={12} max={36} value={busSize}
+                onChange={e => setBusSize(+e.target.value)} />
+            </div>
+            <div>
+              <div className="s-label" style={{marginBottom:4}}>Playback Speed</div>
+              <select value={speed} onChange={e => setSpeed(+e.target.value)}>
+                <option value={30}>30s/s (slow)</option>
+                <option value={120}>2m/s (normal)</option>
+                <option value={300}>5m/s (fast)</option>
+                <option value={900}>15m/s (very fast)</option>
+                <option value={3600}>1h/s</option>
+              </select>
+            </div>
+          </div>
+        </Card>
+
+      </div>
+
+      <div id="time-bar">
+        <div className="slider-wrap">
+          <input type="range" className="timeline"
+            min={0} max={data.timestamps.length - 1} value={tsIndex}
+            onChange={e => setTs(+e.target.value)} />
+        </div>
+        <div className="time-ticks">
+          {ticks.map(t => (
+            <span key={t.ts} className="time-tick" onClick={() => setTs(t.idx)}>
+              {formatTime(t.ts)}
+            </span>
+          ))}
+        </div>
+        <div className="time-top">
+          <button className="play-btn" onClick={() => setPlaying(p => !p)}>
+            {playing ? '⏸' : '▶'}
+          </button>
+          <span className="time-display">{formatTime(curTs)} · {dateStr}</span>
+          <div style={{flex:1}} />
+          <div style={{display:'flex',gap:4,flexShrink:0}}>
+            {[30, 120, 300, 900, 3600].map(s => (
+              <button key={s} className={`speed-btn ${speed===s?'active':''}`}
+                onClick={() => setSpeed(s)}>
+                {s >= 3600 ? `${s/3600}h/s` : s >= 60 ? `${s/60}m/s` : `${s}s/s`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

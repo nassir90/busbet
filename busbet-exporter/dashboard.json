@@ -1,0 +1,446 @@
+{
+  "dashboard": {
+    "uid": "busbet-archive",
+    "title": "busbet \u00b7 GTFS-R archive",
+    "tags": [
+      "busbet",
+      "gtfs"
+    ],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "refresh": "1m",
+    "time": {
+      "from": "now-7d",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Exporter up",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 3,
+          "h": 4
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "busbet_exporter_up",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "0": {
+                    "text": "DOWN",
+                    "color": "red"
+                  }
+                }
+              },
+              {
+                "type": "value",
+                "options": {
+                  "1": {
+                    "text": "UP",
+                    "color": "green"
+                  }
+                }
+              }
+            ],
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "green",
+                  "value": 1
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "Archive duration",
+        "gridPos": {
+          "x": 3,
+          "y": 0,
+          "w": 5,
+          "h": 4
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "max(busbet_archive_duration_seconds)",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "blue",
+                  "value": null
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "none",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        }
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Last feed age",
+        "gridPos": {
+          "x": 8,
+          "y": 0,
+          "w": 5,
+          "h": 4
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "time() - max(busbet_last_feed_timestamp_seconds)",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 120
+                },
+                {
+                  "color": "red",
+                  "value": 600
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "type": "stat",
+        "title": "Files (vehicles / feeds)",
+        "gridPos": {
+          "x": 13,
+          "y": 0,
+          "w": 5,
+          "h": 4
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "busbet_archive_files",
+            "refId": "A",
+            "legendFormat": "{{kind}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "type": "stat",
+        "title": "Total size",
+        "gridPos": {
+          "x": 18,
+          "y": 0,
+          "w": 6,
+          "h": 4
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "sum(busbet_archive_bytes)",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "purple",
+                  "value": null
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        }
+      },
+      {
+        "id": 10,
+        "type": "timeseries",
+        "title": "Archive size over time",
+        "gridPos": {
+          "x": 0,
+          "y": 4,
+          "w": 12,
+          "h": 9
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "busbet_archive_bytes",
+            "legendFormat": "{{kind}}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 15,
+              "stacking": {
+                "mode": "none"
+              }
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": [
+              "lastNotNull",
+              "max"
+            ]
+          }
+        }
+      },
+      {
+        "id": 11,
+        "type": "timeseries",
+        "title": "File count over time",
+        "gridPos": {
+          "x": 12,
+          "y": 4,
+          "w": 12,
+          "h": 9
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "busbet_archive_files",
+            "legendFormat": "{{kind}}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 15
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": [
+              "lastNotNull",
+              "max"
+            ]
+          }
+        }
+      },
+      {
+        "id": 20,
+        "type": "timeseries",
+        "title": "Write rate (bytes/sec, 15m avg)",
+        "gridPos": {
+          "x": 0,
+          "y": 13,
+          "w": 24,
+          "h": 8
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "afjix9zr1mbcwf"
+        },
+        "targets": [
+          {
+            "expr": "rate(busbet_archive_bytes[15m])",
+            "legendFormat": "{{kind}}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "afjix9zr1mbcwf"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "Bps",
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 10
+            },
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom"
+          }
+        }
+      }
+    ]
+  },
+  "overwrite": true,
+  "folderUid": ""
+}

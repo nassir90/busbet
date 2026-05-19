@@ -6,9 +6,10 @@
   "scripts": {
     "collect": "npx tsx scripts/collect.ts",
     "extract": "npx tsx scripts/extract-positions.ts",
-    "serve": "npx serve static -l 3333"
+    "playback": "npx tsx scripts/serve-playback.ts"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.0",
     "gtfs-realtime-bindings": "^1.1.1"
   },
   "devDependencies": {

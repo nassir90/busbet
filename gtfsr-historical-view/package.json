@@ -1,0 +1,12 @@
+{
+  "name": "gtfsr-historical-view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "npx serve static -l 3333"
+  },
+  "devDependencies": {
+    "serve": "^14.2.0"
+  }
+}

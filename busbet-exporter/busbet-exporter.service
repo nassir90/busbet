@@ -1,0 +1,17 @@
+[Unit]
+Description=busbet archive Prometheus exporter (scrapes lab via SSH)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /media/projects/vibes/busbet/busbet-exporter/exporter.py
+Restart=on-failure
+RestartSec=5
+Environment=BUSBET_SSH_HOST=lab@lab
+Environment=BUSBET_ARCHIVE_ROOT=/home/lab/Projects/busbet/gtfsr-collector/data
+Environment=BUSBET_EXPORTER_PORT=9200
+Environment=BUSBET_REFRESH_INTERVAL=60
+
+[Install]
+WantedBy=default.target
