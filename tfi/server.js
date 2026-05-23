@@ -140,6 +140,26 @@ window.TFI = (function(){
   }
   return { load, get, add, remove, rename, reorder };
 })();
+window.TFI_THEME = (function(){
+  const KEY = 'tfi-theme';
+  const themes = {
+    tfi:    { '--blue': '#003b8c', '--yellow': '#ffd200', '--bg': '#eef1f7' },
+    purple: { '--blue': '#6750a4', '--yellow': '#ffd700', '--bg': '#f4eff7' },
+  };
+  const order = ['tfi', 'purple'];
+  function get() { return localStorage.getItem(KEY) || 'tfi'; }
+  function apply(name) {
+    const colors = themes[name] || themes.tfi;
+    for (const [k, v] of Object.entries(colors)) document.documentElement.style.setProperty(k, v);
+  }
+  function cycle() {
+    const next = order[(order.indexOf(get()) + 1) % order.length];
+    localStorage.setItem(KEY, next);
+    apply(next);
+  }
+  apply(get());
+  return { get, apply, cycle, themes };
+})();
 </script>`;
 
 function page(title, body) {
@@ -153,7 +173,7 @@ function page(title, body) {
 ${favsJs}
 </head>
 <body>
-<header><a href="./" style="display:flex;align-items:center;gap:.75rem;text-decoration:none"><span class="badge">TFI</span><span style="color:#fff;font-weight:700;font-size:1.05rem">Live Departures</span></a></header>
+<header style="justify-content:space-between"><a href="./" style="display:flex;align-items:center;gap:.75rem;text-decoration:none"><span class="badge">TFI</span><span style="color:#fff;font-weight:700;font-size:1.05rem">Live Departures</span></a><button onclick="TFI_THEME.cycle()" title="Switch theme" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:1.1rem;padding:.25rem .55rem;border-radius:var(--r);cursor:pointer;font-family:inherit">&#9881;</button></header>
 <main>${body}</main>
 </body>
 </html>`;
