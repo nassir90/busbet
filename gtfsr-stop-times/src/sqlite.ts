@@ -125,6 +125,55 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 			});
 		},
 
+		async getTripDetail(tripId: string) {
+			const r = await db.execute({
+				sql: `SELECT
+				        st.stop_sequence,
+				        st.arrival_time,
+				        st.departure_time,
+				        s.stop_id,
+				        s.stop_code,
+				        s.stop_name,
+				        t.trip_headsign,
+				        t.direction_id,
+				        r.route_short_name
+				      FROM stop_times st
+				      JOIN stops s ON s.stop_id = st.stop_id
+				      JOIN trips t ON t.trip_id = st.trip_id
+				      JOIN routes r ON r.route_id = t.route_id
+				      WHERE st.trip_id = ?
+				      ORDER BY st.stop_sequence`,
+				args: [tripId]
+			});
+			if (r.rows.length === 0) return null;
+
+			const formatTime = (raw: string) => {
+				const rawHour = parseInt(raw.substring(0, 2));
+				const displayHour = rawHour >= 24 ? rawHour - 24 : rawHour;
+				return `${String(displayHour).padStart(2, '0')}:${raw.substring(3, 5)}`;
+			};
+
+			const first = r.rows[0];
+			return {
+				trip_id: tripId,
+				route_short_name: first.route_short_name as string,
+				trip_headsign: (first.trip_headsign as string) ?? 'Unknown',
+				direction_id: first.direction_id as number,
+				stops: r.rows.map((row) => ({
+					stop_sequence: row.stop_sequence as number,
+					stop_id: row.stop_id as string,
+					stop_code: row.stop_code as string,
+					stop_name: row.stop_name as string,
+					scheduled_arrival: formatTime(row.arrival_time as string),
+					scheduled_departure: formatTime(row.departure_time as string),
+					estimated_arrival: null,
+					estimated_departure: null,
+					delay_seconds: null,
+					realtime: false,
+				}))
+			};
+		},
+
 		async getTripStopTimes(tripId: string): Promise<StopTime[]> {
 			const r = await db.execute({
 				sql: `SELECT st.trip_id, st.stop_id, st.stop_sequence, st.arrival_time, st.departure_time

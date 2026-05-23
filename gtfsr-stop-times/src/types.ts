@@ -40,6 +40,27 @@ export interface RouteStop {
 	stop_name: string;
 }
 
+export interface TripStop {
+	stop_sequence: number;
+	stop_id: string;
+	stop_code: string;
+	stop_name: string;
+	scheduled_arrival: string;     // HH:MM
+	scheduled_departure: string;   // HH:MM
+	estimated_arrival: string | null;
+	estimated_departure: string | null;
+	delay_seconds: number | null;
+	realtime: boolean;
+}
+
+export interface TripDetail {
+	trip_id: string;
+	route_short_name: string;
+	trip_headsign: string;
+	direction_id: number;
+	stops: TripStop[];
+}
+
 /** Read-only GTFS storage interface — only what's needed for stop-time lookups */
 export interface GtfsStorage {
 	isSeeded(): Promise<boolean>;
@@ -56,4 +77,5 @@ export interface GtfsStorage {
 	getRouteTrips(routeShortName: string, directionId?: number): Promise<string[]>;
 	searchRoutes(query: string): Promise<RouteDirection[]>;
 	getRouteStops(routeShortName: string, directionId: number): Promise<RouteStop[]>;
+	getTripDetail(tripId: string): Promise<TripDetail | null>;
 }

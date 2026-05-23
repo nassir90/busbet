@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import type { transit_realtime } from 'gtfs-realtime-bindings';
-import type { Departure } from './types.js';
+import type { Departure, TripDetail } from './types.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { FeedMessage } = (GtfsRealtimeBindings as any).transit_realtime as typeof transit_realtime;
@@ -58,6 +58,29 @@ function addSeconds(timeHHMM: string, seconds: number): string {
 	const rh = Math.max(0, Math.floor(totalMins / 60)) % 24;
 	const rm = ((totalMins % 60) + 60) % 60;
 	return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
+}
+
+export async function applyRealtimeDelaysToTrip(detail: TripDetail, feedsDir?: string): Promise<TripDetail> {
+	const feed = await fetchFeed(feedsDir);
+	if (!feed) return detail;
+	const tripUpdates = buildTripUpdates(feed);
+	const updates = tripUpdates.get(detail.trip_id);
+	if (!updates) return detail;
+
+	for (const stop of detail.stops) {
+		let delay: number | null = null;
+		for (const u of updates) {
+			if (u.stopSequence <= stop.stop_sequence) delay = u.delay;
+			else break;
+		}
+		if (delay != null) {
+			stop.delay_seconds = delay;
+			stop.estimated_arrival = addSeconds(stop.scheduled_arrival, delay);
+			stop.estimated_departure = addSeconds(stop.scheduled_departure, delay);
+			stop.realtime = true;
+		}
+	}
+	return detail;
 }
 
 export async function applyRealtimeDelays(departures: Departure[], feedsDir?: string): Promise<Departure[]> {

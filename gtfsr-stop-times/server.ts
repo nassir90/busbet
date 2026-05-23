@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createSqliteBackend } from './src/sqlite.js';
 import { getDepartures } from './src/departures.js';
-import { fetchFeed } from './src/gtfs.js';
+import { fetchFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -109,6 +109,14 @@ const server = http.createServer(async (req, res) => {
 			const stops = await storage.getRouteStops(route, parseInt(dir));
 			if (!stops.length) return respond(res, 404, { message: 'No stops found' });
 			return respond(res, 200, stops);
+		}
+
+		const tripDetail = path.match(/^\/trips\/([^/]+)$/);
+		if (tripDetail) {
+			const detail = await storage.getTripDetail(tripDetail[1]);
+			if (!detail) return respond(res, 404, { message: 'Trip not found' });
+			await applyRealtimeDelaysToTrip(detail, FEEDS_DIR);
+			return respond(res, 200, detail);
 		}
 
 		if (path === '/trip-updates') {
