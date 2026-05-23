@@ -21,14 +21,14 @@ import java.time.format.DateTimeFormatter
 fun StopScreen(
     code: String,
     onBack: () -> Unit,
-    onOpenRoute: (String, Int) -> Unit,
+    onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
     val favourites by favStore.flow.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
 
-    var data by remember(code) { mutableStateOf<DeparturesResponse?>(null) }
+    var data by remember(code) { mutableStateOf(DeparturesCache.get(code)) }
     var initialError by remember(code) { mutableStateOf<String?>(null) }
     var lastFetched by remember(code) { mutableStateOf<LocalTime?>(null) }
     var stale by remember(code) { mutableStateOf(false) }
@@ -38,6 +38,7 @@ fun StopScreen(
             runCatching { Api.service.departures(code) }
                 .onSuccess {
                     data = it
+                    DeparturesCache.put(code, it)
                     initialError = null
                     stale = false
                     lastFetched = LocalTime.now()
@@ -103,7 +104,7 @@ fun StopScreen(
                 data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(data!!.departures) { d ->
-                        DepartureRow(d, onOpenRoute = { onOpenRoute(d.routeShortName, d.directionId) })
+                        DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, code) })
                         HorizontalDivider()
                     }
                 }

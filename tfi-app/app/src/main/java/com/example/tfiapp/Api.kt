@@ -46,6 +46,27 @@ data class RouteStop(
     @SerializedName("stop_name") val stopName: String,
 )
 
+data class TripStop(
+    @SerializedName("stop_sequence") val stopSequence: Int,
+    @SerializedName("stop_id") val stopId: String,
+    @SerializedName("stop_code") val stopCode: String,
+    @SerializedName("stop_name") val stopName: String,
+    @SerializedName("scheduled_arrival") val scheduledArrival: String,
+    @SerializedName("scheduled_departure") val scheduledDeparture: String,
+    @SerializedName("estimated_arrival") val estimatedArrival: String?,
+    @SerializedName("estimated_departure") val estimatedDeparture: String?,
+    @SerializedName("delay_seconds") val delaySeconds: Int?,
+    val realtime: Boolean,
+)
+
+data class TripDetail(
+    @SerializedName("trip_id") val tripId: String,
+    @SerializedName("route_short_name") val routeShortName: String,
+    @SerializedName("trip_headsign") val tripHeadsign: String,
+    @SerializedName("direction_id") val directionId: Int,
+    val stops: List<TripStop>,
+)
+
 interface GtfsApi {
     @GET("stops")
     suspend fun searchStops(@Query("q") q: String): List<Stop>
@@ -61,6 +82,9 @@ interface GtfsApi {
         @Query("route") route: String,
         @Query("direction") direction: Int,
     ): List<RouteStop>
+
+    @GET("trips/{tripId}")
+    suspend fun trip(@Path("tripId") tripId: String): TripDetail
 }
 
 object Api {

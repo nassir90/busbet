@@ -31,6 +31,7 @@ fun HomeScreen(
     currentTheme: AppTheme,
     onOpenStop: (String) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit,
+    onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
@@ -184,7 +185,7 @@ fun HomeScreen(
                                 favourite = fav,
                                 isDragging = isDragging,
                                 onOpen = { onOpenStop(fav.code) },
-                                onOpenRoute = onOpenRoute,
+                                onOpenTrip = onOpenTrip,
                                 onRemove = { scope.launch { favStore.remove(fav.code) } },
                                 handleModifier = handleModifier,
                                 onStaleChanged = { staleCodes[fav.code] = it },
@@ -232,12 +233,14 @@ private fun FavouriteCard(
     favourite: Favourite,
     isDragging: Boolean,
     onOpen: () -> Unit,
-    onOpenRoute: (String, Int) -> Unit,
+    onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onRemove: () -> Unit,
     handleModifier: Modifier,
     onStaleChanged: (Boolean) -> Unit,
 ) {
-    var deps by remember(favourite.code) { mutableStateOf<List<Departure>?>(null) }
+    var deps by remember(favourite.code) {
+        mutableStateOf(DeparturesCache.get(favourite.code)?.departures?.take(3))
+    }
     var initialError by remember(favourite.code) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(favourite.code) {
@@ -245,6 +248,7 @@ private fun FavouriteCard(
             runCatching { Api.service.departures(favourite.code) }
                 .onSuccess {
                     deps = it.departures.take(3)
+                    DeparturesCache.put(favourite.code, it)
                     initialError = null
                     onStaleChanged(false)
                 }
@@ -284,7 +288,7 @@ private fun FavouriteCard(
                 deps == null -> Text("Loading…", style = MaterialTheme.typography.bodySmall)
                 deps!!.isEmpty() -> Text("No upcoming departures", style = MaterialTheme.typography.bodySmall)
                 else -> deps!!.forEach { d ->
-                    DepartureRow(d, onOpenRoute = { onOpenRoute(d.routeShortName, d.directionId) })
+                    DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) })
                 }
             }
         }
