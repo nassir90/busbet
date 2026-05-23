@@ -1,0 +1,16 @@
+[Unit]
+Description=TFI app
+After=network.target
+
+[Service]
+Slice=lab.slice
+Type=simple
+WorkingDirectory=/home/lab/Projects/busbet/tfi
+ExecStart=/usr/bin/node server.js
+EnvironmentFile=/home/lab/Projects/ports.env
+Environment=GTFSR_STOP_TIMES_URL=http://localhost:8110
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
