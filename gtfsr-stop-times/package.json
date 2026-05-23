@@ -1,0 +1,15 @@
+{
+  "name": "gtfsr-stop-times",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.0",
+    "gtfs-realtime-bindings": "^1.1.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

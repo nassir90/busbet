@@ -1,0 +1,15 @@
+[Unit]
+Description=GTFS-R bus data collector
+After=network.target
+
+[Service]
+Slice=lab.slice
+Type=simple
+WorkingDirectory=/home/lab/Projects/busbet/gtfsr-collector
+ExecStart=/usr/bin/npx tsx scripts/collect.ts
+EnvironmentFile=/home/lab/Projects/busbet/gtfsr-collector/.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

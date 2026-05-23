@@ -1,0 +1,13 @@
+[Unit]
+Description=GTFS-R stop times microservice
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lab/Projects/busbet/gtfsr-stop-times
+ExecStart=npx tsx server.ts
+Restart=on-failure
+Slice=lab.slice
+
+[Install]
+WantedBy=default.target

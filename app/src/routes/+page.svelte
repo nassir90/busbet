@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import StopSearch from '$lib/components/StopSearch.svelte';
 	import type { Stop } from '$lib/server/storage/types.js';
 	import type { PageData } from './$types';
@@ -7,7 +8,7 @@
 	const { data }: { data: PageData } = $props();
 
 	function onStopSelected(stop: Stop) {
-		goto(`/stop/${stop.stop_code}`);
+		goto(`${base}/stop/${stop.stop_code}`);
 	}
 </script>
 

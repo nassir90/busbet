@@ -1,0 +1,9 @@
+[project]
+name = "compare"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "gtfs-realtime-bindings>=2.0.0",
+    "requests>=2.34.2",
+]

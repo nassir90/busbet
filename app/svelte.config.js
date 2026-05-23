@@ -5,7 +5,8 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
 	preprocess: vitePreprocess(),
 	kit: {
-		adapter: adapter({ runtime: 'nodejs22.x' })
+		adapter: adapter({ runtime: 'nodejs22.x' }),
+		paths: { base: '/busbet' }
 	}
 };
 

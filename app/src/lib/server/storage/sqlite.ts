@@ -293,7 +293,7 @@ export async function createSqliteBackend(dbPath: string): Promise<StorageBacken
 			});
 		},
 
-		async getScheduledDepartures(stopId, activeServiceIds, windowMinutes = 90, hourOffset = 0) {
+		async getScheduledDepartures(stopId, activeServiceIds, windowMinutes = 105, hourOffset = 0) {
 			if (activeServiceIds.length === 0) return [];
 
 			const now = new Date();
@@ -306,6 +306,8 @@ export async function createSqliteBackend(dbPath: string): Promise<StorageBacken
 			const r = await db.execute({
 				sql: `SELECT
 				        st.trip_id,
+				        st.stop_id,
+				        st.stop_sequence,
 				        st.departure_time,
 				        r.route_short_name,
 				        t.trip_headsign
@@ -327,13 +329,14 @@ export async function createSqliteBackend(dbPath: string): Promise<StorageBacken
 			});
 
 			return r.rows.map((row): Departure => {
-				// Normalise display time: GTFS "24:29" → clock "00:29"
 				const rawTime = row.departure_time as string;
 				const rawHour = parseInt(rawTime.substring(0, 2));
 				const displayHour = rawHour >= 24 ? rawHour - 24 : rawHour;
 				const scheduledDisplay = `${String(displayHour).padStart(2, '0')}:${rawTime.substring(3, 5)}`;
 				return {
 					trip_id: row.trip_id as string,
+					stop_id: row.stop_id as string,
+					stop_sequence: row.stop_sequence as number,
 					route_short_name: row.route_short_name as string,
 					trip_headsign: (row.trip_headsign as string) ?? 'Unknown',
 					scheduled_departure: scheduledDisplay,

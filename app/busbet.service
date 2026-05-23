@@ -1,0 +1,15 @@
+[Unit]
+Description=Busbet SvelteKit app
+After=network.target
+
+[Service]
+Slice=lab.slice
+Type=simple
+WorkingDirectory=/home/lab/Projects/busbet/app
+ExecStart=/usr/bin/npm run dev -- --port ${BUSBET_PORT} --host 127.0.0.1
+EnvironmentFile=/home/lab/Projects/ports.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

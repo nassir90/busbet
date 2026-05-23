@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import type { Stop } from '$lib/server/storage/types.js';
 
 	interface Props {
@@ -18,7 +19,7 @@
 		}
 		loading = true;
 		try {
-			const res = await fetch(`/api/stops?q=${encodeURIComponent(q)}`);
+			const res = await fetch(`${base}/api/stops?q=${encodeURIComponent(q)}`);
 			if (res.ok) results = await res.json();
 		} finally {
 			loading = false;

@@ -1,0 +1,14 @@
+[Unit]
+Description=Clover — Dublin Bus prediction markets
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lab/Projects/busbet/clover
+EnvironmentFile=/home/lab/Projects/ports.env
+ExecStart=npm run dev -- --port $CLOVER_PORT --host 127.0.0.1
+Restart=on-failure
+Slice=lab.slice
+
+[Install]
+WantedBy=default.target

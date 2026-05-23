@@ -2,9 +2,26 @@
  * Wager resolution service.
  * Checks tracked trips against the live GTFS-R feed and settles open wagers.
  */
+import { env } from '$env/dynamic/private';
 import { getStorage } from '../storage/index.js';
-import { fetchFeed } from './gtfs.js';
 import type { TrackedTrip, WagerResult } from '../storage/types.js';
+
+const serviceUrl = () => env.GTFSR_STOP_TIMES_URL ?? 'http://localhost:8110';
+
+type TripUpdate = {
+	scheduleRelationship: number;
+	stopTimeUpdates: { stopId: string; stopSequence: number; arrivalDelay: number; departureDelay: number }[];
+};
+
+async function getTripUpdates(): Promise<Record<string, TripUpdate> | null> {
+	try {
+		const res = await fetch(`${serviceUrl()}/trip-updates`);
+		if (!res.ok) return null;
+		return await res.json();
+	} catch {
+		return null;
+	}
+}
 
 function timeToMins(hhmm: string): number {
 	const [h, m] = hhmm.split(':').map(Number);
@@ -19,10 +36,7 @@ function scheduledMs(date: string, time: string): number {
 	return new Date(year, month, day, h, m, 0).getTime();
 }
 
-async function settleTrip(
-	trip: TrackedTrip,
-	outcome: 'arrived' | 'canceled'
-): Promise<void> {
+async function settleTrip(trip: TrackedTrip, outcome: 'arrived' | 'canceled'): Promise<void> {
 	const storage = await getStorage();
 	const wagers = await storage.getOpenWagers(trip.trip_id, trip.stop_id);
 	if (wagers.length === 0) {
@@ -33,8 +47,8 @@ async function settleTrip(
 	}
 
 	const totalPool = wagers.reduce((sum, w) => sum + w.stake, 0);
-
 	let winners: typeof wagers;
+
 	if (outcome === 'canceled') {
 		winners = wagers.filter((w) => w.wager_type === 'cancellation');
 	} else {
@@ -49,9 +63,7 @@ async function settleTrip(
 	}
 
 	const results: WagerResult[] = wagers.map((w) => {
-		if (winners.length === 0) {
-			return { wagerId: w.wager_id, status: 'void', payout: w.stake };
-		}
+		if (winners.length === 0) return { wagerId: w.wager_id, status: 'void', payout: w.stake };
 		if (winners.some((win) => win.wager_id === w.wager_id)) {
 			const winnersStake = winners.reduce((sum, win) => sum + win.stake, 0);
 			return { wagerId: w.wager_id, status: 'won', payout: (w.stake / winnersStake) * totalPool };
@@ -64,8 +76,8 @@ async function settleTrip(
 
 /** Called after each departures fetch to check and resolve tracked trips. */
 export async function resolveTrackedTrips(): Promise<void> {
-	const feed = await fetchFeed();
-	if (!feed) return;
+	const tripUpdates = await getTripUpdates();
+	if (!tripUpdates) return;
 
 	const storage = await getStorage();
 	const tracked = await storage.getTrackedTrips();
@@ -75,19 +87,16 @@ export async function resolveTrackedTrips(): Promise<void> {
 	const GRACE_MS = 15 * 60 * 1000;
 
 	for (const trip of tracked) {
-		const entity = feed.entity.find((e) => e.tripUpdate?.trip?.tripId === trip.trip_id);
+		const tu = tripUpdates[trip.trip_id];
 
-		if (entity) {
-			const tu = entity.tripUpdate!;
-			// scheduleRelationship 3 = CANCELED in GTFS-RT protobuf enum
-			if ((tu.trip?.scheduleRelationship as unknown as number) === 3) {
+		if (tu) {
+			if (tu.scheduleRelationship === 3) {
 				await settleTrip(trip, 'canceled');
 				continue;
 			}
 
-			// Update last estimated departure for this specific stop
-			const stu = (tu.stopTimeUpdate ?? []).find((s) => s.stopId === trip.stop_id);
-			const delaySecs = stu?.departure?.delay ?? stu?.arrival?.delay ?? 0;
+			const stu = tu.stopTimeUpdates.find((s) => s.stopId === trip.stop_id);
+			const delaySecs = stu?.departureDelay ?? stu?.arrivalDelay ?? 0;
 			const scheduledMins = timeToMins(trip.scheduled_departure);
 			const estimatedMins = scheduledMins + Math.round(delaySecs / 60);
 			const eh = Math.floor(estimatedMins / 60) % 24;
@@ -99,7 +108,6 @@ export async function resolveTrackedTrips(): Promise<void> {
 				lastSeenAt: new Date().toISOString()
 			});
 		} else {
-			// Trip not in feed — check if overdue (grace period elapsed)
 			const scheduledTime = scheduledMs(trip.scheduled_date, trip.scheduled_departure);
 			if (now > scheduledTime + GRACE_MS && trip.last_seen_at) {
 				await settleTrip(trip, 'arrived');

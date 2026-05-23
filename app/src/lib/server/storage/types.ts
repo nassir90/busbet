@@ -59,6 +59,8 @@ export type CalendarDate = z.infer<typeof CalendarDateSchema>;
 /** A scheduled departure enriched with realtime delay info */
 export const DepartureSchema = z.object({
 	trip_id: z.string(),
+	stop_id: z.string(),
+	stop_sequence: z.number(),
 	route_short_name: z.string(),
 	trip_headsign: z.string(),
 	scheduled_departure: z.string(), // HH:MM

@@ -1,0 +1,15 @@
+[Unit]
+Description=GTFS-R historical view
+After=network.target
+
+[Service]
+Slice=lab.slice
+Type=simple
+WorkingDirectory=/home/lab/Projects/busbet/gtfsr-historical-view
+ExecStart=/usr/bin/npx serve static -l ${HISTORICAL_VIEW_PORT}
+EnvironmentFile=/home/lab/Projects/ports.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

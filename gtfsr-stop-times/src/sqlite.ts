@@ -1,7 +1,6 @@
 import { createClient } from '@libsql/client';
 import type { Client } from '@libsql/client';
-import type { StorageBackend } from './interface.js';
-import type { Stop, Departure, StopTime } from './types.js';
+import type { GtfsStorage, Stop, Departure, StopTime, RouteDirection, RouteStop } from './types.js';
 
 function openDb(path: string): Client {
 	return createClient({ url: `file:${path}` });
@@ -13,7 +12,7 @@ function minsToGtfsTime(totalMins: number): string {
 	return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
-export async function createSqliteBackend(dbPath: string): Promise<StorageBackend> {
+export function createSqliteBackend(dbPath: string): GtfsStorage {
 	const db = openDb(dbPath);
 
 	return {
@@ -72,7 +71,7 @@ export async function createSqliteBackend(dbPath: string): Promise<StorageBacken
 			return [...new Set([...regular, ...added])];
 		},
 
-		async getScheduledDepartures(stopId, activeServiceIds, windowMinutes = 90, hourOffset = 0) {
+		async getScheduledDepartures(stopId, activeServiceIds, windowMinutes = 105, hourOffset = 0) {
 			if (activeServiceIds.length === 0) return [];
 
 			const now = new Date();
@@ -83,6 +82,8 @@ export async function createSqliteBackend(dbPath: string): Promise<StorageBacken
 			const r = await db.execute({
 				sql: `SELECT
 				        st.trip_id,
+				        st.stop_id,
+				        st.stop_sequence,
 				        st.departure_time,
 				        r.route_short_name,
 				        t.trip_headsign
@@ -110,6 +111,8 @@ export async function createSqliteBackend(dbPath: string): Promise<StorageBacken
 				const scheduledDisplay = `${String(displayHour).padStart(2, '0')}:${rawTime.substring(3, 5)}`;
 				return {
 					trip_id: row.trip_id as string,
+					stop_id: row.stop_id as string,
+					stop_sequence: row.stop_sequence as number,
 					route_short_name: row.route_short_name as string,
 					trip_headsign: (row.trip_headsign as string) ?? 'Unknown',
 					scheduled_departure: scheduledDisplay,
@@ -129,6 +132,74 @@ export async function createSqliteBackend(dbPath: string): Promise<StorageBacken
 				args: [tripId]
 			});
 			return r.rows as unknown as StopTime[];
+		},
+
+		async searchRoutes(query: string): Promise<RouteDirection[]> {
+			const like = `%${query.toUpperCase()}%`;
+
+			// Step 1: scan routes (412 rows) — fast regardless of LIKE pattern
+			const routeRows = await db.execute({
+				sql: `SELECT route_id, route_short_name FROM routes
+				      WHERE UPPER(route_short_name) LIKE ? LIMIT 10`,
+				args: [like]
+			});
+			if (!routeRows.rows.length) return [];
+
+			// Steps 2+3: per route, fetch directions (idx_trips_route) then first/last
+			// stops (primary key). All routes processed in parallel.
+			const perRoute = await Promise.all(
+				(routeRows.rows as unknown as { route_id: string; route_short_name: string }[]).map(async (route) => {
+					const dirRows = await db.execute({
+						sql: `SELECT direction_id, MIN(trip_id) AS rep_trip
+						      FROM trips WHERE route_id = ? GROUP BY direction_id`,
+						args: [route.route_id]
+					});
+					return Promise.all(
+						(dirRows.rows as unknown as { direction_id: number; rep_trip: string }[]).map(async (dir) => {
+							const [first, last] = await Promise.all([
+								db.execute({
+									sql: `SELECT s.stop_name FROM stop_times st
+									      JOIN stops s ON s.stop_id = st.stop_id
+									      WHERE st.trip_id = ? ORDER BY st.stop_sequence LIMIT 1`,
+									args: [dir.rep_trip]
+								}),
+								db.execute({
+									sql: `SELECT s.stop_name FROM stop_times st
+									      JOIN stops s ON s.stop_id = st.stop_id
+									      WHERE st.trip_id = ? ORDER BY st.stop_sequence DESC LIMIT 1`,
+									args: [dir.rep_trip]
+								})
+							]);
+							return {
+								route_short_name: route.route_short_name,
+								direction_id: dir.direction_id,
+								from_stop: (first.rows[0]?.stop_name as string) ?? '',
+								to_stop: (last.rows[0]?.stop_name as string) ?? ''
+							} as RouteDirection;
+						})
+					);
+				})
+			);
+
+			return perRoute.flat().sort((a, b) =>
+				a.route_short_name.localeCompare(b.route_short_name) || a.direction_id - b.direction_id
+			);
+		},
+
+		async getRouteStops(routeShortName: string, directionId: number): Promise<RouteStop[]> {
+			const r = await db.execute({
+				sql: `SELECT st.stop_sequence, s.stop_code, s.stop_name
+				      FROM stop_times st
+				      JOIN stops s ON st.stop_id = s.stop_id
+				      WHERE st.trip_id = (
+				        SELECT MIN(t.trip_id) FROM trips t
+				        JOIN routes r ON r.route_id = t.route_id
+				        WHERE r.route_short_name = ? AND t.direction_id = ?
+				      )
+				      ORDER BY st.stop_sequence`,
+				args: [routeShortName, directionId]
+			});
+			return r.rows as unknown as RouteStop[];
 		},
 
 		async getRouteTrips(routeShortName: string, directionId?: number): Promise<string[]> {
