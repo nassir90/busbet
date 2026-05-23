@@ -2,3 +2,27 @@
 node_modules
 .svelte-kit
 **/supabase/.temp/
+
+# Android / Gradle / JVM
+.gradle/
+build/
+out/
+bin/
+captures/
+.cxx/
+.externalNativeBuild/
+local.properties
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+*.jks
+*.keystore
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
