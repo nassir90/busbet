@@ -19,6 +19,7 @@ export interface Departure {
 	stop_id: string;
 	stop_sequence: number;
 	route_short_name: string;
+	direction_id: number;
 	trip_headsign: string;
 	scheduled_departure: string;   // HH:MM
 	estimated_departure: string | null;

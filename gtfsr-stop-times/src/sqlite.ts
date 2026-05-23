@@ -86,6 +86,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				        st.stop_sequence,
 				        st.departure_time,
 				        r.route_short_name,
+				        t.direction_id,
 				        t.trip_headsign
 				      FROM stop_times st
 				      JOIN trips t  ON t.trip_id  = st.trip_id
@@ -114,6 +115,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 					stop_id: row.stop_id as string,
 					stop_sequence: row.stop_sequence as number,
 					route_short_name: row.route_short_name as string,
+					direction_id: row.direction_id as number,
 					trip_headsign: (row.trip_headsign as string) ?? 'Unknown',
 					scheduled_departure: scheduledDisplay,
 					estimated_departure: null,
