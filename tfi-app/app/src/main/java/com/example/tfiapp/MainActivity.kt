@@ -2,6 +2,7 @@ package com.example.tfiapp
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,11 @@ sealed class Screen {
 @Composable
 fun App() {
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+
+    BackHandler(enabled = screen !is Screen.Home) {
+        screen = Screen.Home
+    }
+
     when (val s = screen) {
         is Screen.Home -> HomeScreen(
             onOpenStop = { screen = Screen.StopBoard(it) },

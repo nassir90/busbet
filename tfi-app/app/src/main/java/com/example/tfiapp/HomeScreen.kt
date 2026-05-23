@@ -1,6 +1,7 @@
 package com.example.tfiapp
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -60,13 +62,19 @@ fun HomeScreen(
     var localOrder by remember { mutableStateOf(favourites) }
     LaunchedEffect(favourites) { localOrder = favourites }
 
+    val staleCodes = remember { mutableStateMapOf<String, Boolean>() }
+    val anyStale = localOrder.any { staleCodes[it.code] == true }
+
     val listState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
         localOrder = localOrder.toMutableList().apply { add(to.index, removeAt(from.index)) }
     }
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text("TFI Live Departures") })
+        TopAppBar(
+            title = { Text("TFI Live Departures") },
+            actions = { if (anyStale) StaleBadge() },
+        )
     }) { padding ->
         Column(Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
             OutlinedTextField(
@@ -116,7 +124,11 @@ fun HomeScreen(
             if (localOrder.isNotEmpty()) {
                 Text("Favourites", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     items(localOrder, key = { it.code }) { fav ->
                         ReorderableItem(reorderState, key = fav.code) { isDragging ->
                             val handleModifier = Modifier
@@ -134,8 +146,8 @@ fun HomeScreen(
                                 onOpenRoute = onOpenRoute,
                                 onRemove = { scope.launch { favStore.remove(fav.code) } },
                                 handleModifier = handleModifier,
+                                onStaleChanged = { staleCodes[fav.code] = it },
                             )
-                            Spacer(Modifier.height(8.dp))
                         }
                     }
                 }
@@ -148,6 +160,19 @@ fun HomeScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun StaleBadge() {
+    val amber = Color(0xFFB45309)
+    Row(
+        Modifier.padding(end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("⚠", color = amber, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.width(4.dp))
+        Text("stale", color = amber, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -169,17 +194,23 @@ private fun FavouriteCard(
     onOpenRoute: (String, Int) -> Unit,
     onRemove: () -> Unit,
     handleModifier: Modifier,
+    onStaleChanged: (Boolean) -> Unit,
 ) {
     var deps by remember(favourite.code) { mutableStateOf<List<Departure>?>(null) }
-    var error by remember(favourite.code) { mutableStateOf<String?>(null) }
+    var initialError by remember(favourite.code) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(favourite.code) {
         while (true) {
             runCatching { Api.service.departures(favourite.code) }
-                .onSuccess { deps = it.departures.take(3); error = null }
+                .onSuccess {
+                    deps = it.departures.take(3)
+                    initialError = null
+                    onStaleChanged(false)
+                }
                 .onFailure {
                     android.util.Log.e("tfi", "departures ${favourite.code} failed", it)
-                    error = "${it::class.simpleName}: ${it.message}"
+                    if (deps != null) onStaleChanged(true)
+                    else initialError = "${it::class.simpleName}: ${it.message}"
                 }
             delay(30_000)
         }
@@ -191,7 +222,7 @@ private fun FavouriteCard(
             defaultElevation = if (isDragging) 8.dp else 1.dp,
         ),
     ) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
                     Text(favourite.name, style = MaterialTheme.typography.titleMedium)
@@ -207,11 +238,12 @@ private fun FavouriteCard(
             }
             Spacer(Modifier.height(4.dp))
             when {
-                error != null -> Text("Could not load", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                deps == null && initialError != null ->
+                    Text("Could not load", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 deps == null -> Text("Loading…", style = MaterialTheme.typography.bodySmall)
                 deps!!.isEmpty() -> Text("No upcoming departures", style = MaterialTheme.typography.bodySmall)
                 else -> deps!!.forEach { d ->
-                    DepartureRow(d, onOpenRoute = { onOpenRoute(d.routeShortName, 0) })
+                    DepartureRow(d, onOpenRoute = { onOpenRoute(d.routeShortName, d.directionId) })
                 }
             }
         }

@@ -29,14 +29,24 @@ fun StopScreen(
     val scope = rememberCoroutineScope()
 
     var data by remember(code) { mutableStateOf<DeparturesResponse?>(null) }
-    var error by remember(code) { mutableStateOf<String?>(null) }
+    var initialError by remember(code) { mutableStateOf<String?>(null) }
     var lastFetched by remember(code) { mutableStateOf<LocalTime?>(null) }
+    var stale by remember(code) { mutableStateOf(false) }
 
     LaunchedEffect(code) {
         while (true) {
             runCatching { Api.service.departures(code) }
-                .onSuccess { data = it; error = null; lastFetched = LocalTime.now() }
-                .onFailure { error = it.message ?: "error" }
+                .onSuccess {
+                    data = it
+                    initialError = null
+                    stale = false
+                    lastFetched = LocalTime.now()
+                }
+                .onFailure {
+                    android.util.Log.e("tfi", "stop $code fetch failed", it)
+                    if (data != null) stale = true
+                    else initialError = it.message ?: "error"
+                }
             delay(30_000)
         }
     }
@@ -51,6 +61,7 @@ fun StopScreen(
                 TextButton(onClick = onBack) { Text("←") }
             },
             actions = {
+                if (stale) StaleBadge()
                 val stop = data?.stop
                 TextButton(onClick = {
                     scope.launch {
@@ -75,12 +86,12 @@ fun StopScreen(
             HorizontalDivider()
 
             when {
-                error != null && data == null -> EmptyMessage("Could not load departures.\n$error")
+                initialError != null && data == null -> EmptyMessage("Could not load departures.\n$initialError")
                 data == null -> EmptyMessage("Loading…")
                 data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.")
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(data!!.departures) { d ->
-                        DepartureRow(d, onOpenRoute = { onOpenRoute(d.routeShortName, 0) })
+                        DepartureRow(d, onOpenRoute = { onOpenRoute(d.routeShortName, d.directionId) })
                         HorizontalDivider()
                     }
                 }

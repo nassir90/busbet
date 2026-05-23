@@ -20,6 +20,7 @@ data class Departure(
     @SerializedName("trip_id") val tripId: String,
     @SerializedName("stop_sequence") val stopSequence: Int,
     @SerializedName("route_short_name") val routeShortName: String,
+    @SerializedName("direction_id") val directionId: Int,
     @SerializedName("trip_headsign") val tripHeadsign: String,
     @SerializedName("scheduled_departure") val scheduledDeparture: String,
     @SerializedName("estimated_departure") val estimatedDeparture: String?,
