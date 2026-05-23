@@ -57,18 +57,30 @@ fun StopScreen(
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(title, maxLines = 1) },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
             navigationIcon = {
-                TextButton(onClick = onBack) { Text("←") }
+                TextButton(
+                    onClick = onBack,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                ) { Text("←") }
             },
             actions = {
                 if (stale) StaleBadge()
                 val stop = data?.stop
-                TextButton(onClick = {
-                    scope.launch {
-                        if (isFavourite) favStore.remove(code)
-                        else favStore.add(code, stop?.stopName ?: code)
-                    }
-                }) { Text(if (isFavourite) "★ Saved" else "☆ Save") }
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            if (isFavourite) favStore.remove(code)
+                            else favStore.add(code, stop?.stopName ?: code)
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                ) { Text(if (isFavourite) "★ Saved" else "☆ Save") }
             },
         )
     }) { padding ->

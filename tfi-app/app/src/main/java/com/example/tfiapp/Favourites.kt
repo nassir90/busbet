@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.map
 
 data class Favourite(val code: String, val name: String)
 
-private val Context.dataStore by preferencesDataStore(name = "tfi")
+val Context.dataStore by preferencesDataStore(name = "tfi")
 private val KEY = stringPreferencesKey("favourites")
 private val gson = Gson()
 private val type = object : TypeToken<List<Favourite>>() {}.type

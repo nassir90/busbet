@@ -27,6 +27,8 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    themeStore: ThemeStore,
+    currentTheme: AppTheme,
     onOpenStop: (String) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit,
 ) {
@@ -70,13 +72,52 @@ fun HomeScreen(
         localOrder = localOrder.toMutableList().apply { add(to.index, removeAt(from.index)) }
     }
 
+    var menuOpen by remember { mutableStateOf(false) }
+
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("TFI Live Departures") },
-            actions = { if (anyStale) StaleBadge() },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+            actions = {
+                if (anyStale) StaleBadge()
+                Box {
+                    TextButton(
+                        onClick = { menuOpen = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                    ) { Text("⋮") }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        Text(
+                            "Theme",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                        AppTheme.entries.forEach { t ->
+                            DropdownMenuItem(
+                                text = { Text(t.label) },
+                                trailingIcon = { if (t == currentTheme) Text("✓") },
+                                onClick = {
+                                    scope.launch { themeStore.set(t) }
+                                    menuOpen = false
+                                },
+                            )
+                        }
+                    }
+                }
+            },
         )
     }) { padding ->
-        Column(Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
+        Column(
+            Modifier
+                .padding(padding)
+                .padding(horizontal = 16.dp)
+                .padding(top = 0.dp, bottom = 16.dp)
+                .fillMaxSize()
+        ) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },

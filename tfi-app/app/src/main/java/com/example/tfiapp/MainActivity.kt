@@ -8,19 +8,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            val context = LocalContext.current
+            val themeStore = remember { ThemeStore(context) }
+            val theme by themeStore.flow.collectAsState(initial = AppTheme.DEFAULT)
+            val colors = if (theme == AppTheme.TFI) TfiColorScheme else DefaultColorScheme
+            MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    App()
+                    App(themeStore = themeStore, currentTheme = theme)
                 }
             }
         }
@@ -34,7 +40,7 @@ sealed class Screen {
 }
 
 @Composable
-fun App() {
+fun App(themeStore: ThemeStore, currentTheme: AppTheme) {
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
 
     BackHandler(enabled = screen !is Screen.Home) {
@@ -43,6 +49,8 @@ fun App() {
 
     when (val s = screen) {
         is Screen.Home -> HomeScreen(
+            themeStore = themeStore,
+            currentTheme = currentTheme,
             onOpenStop = { screen = Screen.StopBoard(it) },
             onOpenRoute = { route, dir -> screen = Screen.RouteView(route, dir) },
         )

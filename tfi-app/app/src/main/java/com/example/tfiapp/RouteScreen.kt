@@ -31,11 +31,23 @@ fun RouteScreen(
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Route $route") },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
             navigationIcon = {
-                TextButton(onClick = onBack) { Text("←") }
+                TextButton(
+                    onClick = onBack,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                ) { Text("←") }
             },
             actions = {
-                TextButton(onClick = onFlip) { Text("⇄") }
+                TextButton(
+                    onClick = onFlip,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                ) { Text("⇄") }
             },
         )
     }) { padding ->
