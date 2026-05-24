@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -51,7 +52,7 @@ class StopWidgetConfigActivity : ComponentActivity() {
         setContent {
             val themeStore = remember { ThemeStore(this) }
             val theme by themeStore.flow.collectAsState(initial = AppTheme.DEFAULT)
-            val colors = if (theme == AppTheme.TFI) TfiColorScheme else DefaultColorScheme
+            val colors = colorsFor(theme, isSystemInDarkTheme())
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     PickerScreen(

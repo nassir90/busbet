@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +25,7 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val themeStore = remember { ThemeStore(context) }
             val theme by themeStore.flow.collectAsState(initial = AppTheme.DEFAULT)
-            val colors = if (theme == AppTheme.TFI) TfiColorScheme else DefaultColorScheme
+            val colors = colorsFor(theme, isSystemInDarkTheme())
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     App(themeStore = themeStore, currentTheme = theme, initialStop = initialStop)
