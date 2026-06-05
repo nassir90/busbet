@@ -55,17 +55,12 @@ export function vehiclesDirFromFeedsDir(feedsDir: string): string {
 }
 
 /**
- * Returns all active vehicle positions for the given set of route short names,
- * with server-derived bearings. NTA's GTFS-R `bearing` field is always 0, so
- * bearing is computed here from consecutive position samples instead.
- *
- * Route matching strips the operator prefix from the feed's routeId
- * (e.g. "7-46A_00674" → short name "46A") using the same suffix approach as
- * extract-positions.ts.
+ * Returns vehicle positions for the given trip IDs, with server-derived
+ * bearings from consecutive position samples. NTA's GTFS-R `bearing` field is
+ * always 0, so bearing is computed here instead.
  */
-export async function getVehiclesForRoutes(
-	routeNames: Set<string>,
-	delayByTripId: Map<string, number | null>,
+export async function getVehiclesForTrips(
+	tripIds: Map<string, { route: string; delay: number | null }>,
 	vehiclesDir: string,
 ): Promise<VehiclePosition[]> {
 	const feed = await fetchVehiclesFeed(vehiclesDir);
@@ -81,14 +76,10 @@ export async function getVehiclesForRoutes(
 		if (!lat || !lon || Math.abs(lat) < 1) continue;
 		if (lat === 0 && lon === 0) continue;
 
-		// Match route by stripping any operator prefix from the feed routeId.
-		// NTA uses formats like "7-46A_00674"; the short name is the part before
-		// the last numeric suffix, which we can recover via the DB name set.
-		const feedRouteId = v.trip?.routeId ?? '';
-		const routeName = resolveRouteName(feedRouteId, routeNames);
-		if (!routeName) continue;
-
 		const tripId = v.trip?.tripId ?? '';
+		const meta = tripIds.get(tripId);
+		if (!meta) continue;
+
 		const ts = v.timestamp ? Number(v.timestamp) : now;
 
 		let bearing: number | null = null;
@@ -105,30 +96,13 @@ export async function getVehiclesForRoutes(
 
 		result.push({
 			trip_id:          tripId,
-			route_short_name: routeName,
+			route_short_name: meta.route,
 			lat,
 			lon,
 			bearing,
-			delay_seconds:    delayByTripId.get(tripId) ?? null,
+			delay_seconds:    meta.delay,
 		});
 	}
 
 	return result;
-}
-
-/**
- * Resolve a feed routeId (e.g. "7-46A_00674", "GO_46A", "46A") to one of the
- * known route short names. Tries exact match first, then strips prefixes.
- */
-function resolveRouteName(feedRouteId: string, knownRoutes: Set<string>): string | null {
-	if (knownRoutes.has(feedRouteId)) return feedRouteId;
-	// Strip leading operator prefix: "7-46A_00674" → try parts split by "-" and "_"
-	for (const sep of ['-', '_']) {
-		const parts = feedRouteId.split(sep);
-		for (let i = 1; i < parts.length; i++) {
-			const candidate = parts.slice(i).join(sep);
-			if (knownRoutes.has(candidate)) return candidate;
-		}
-	}
-	return null;
 }

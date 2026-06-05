@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createSqliteBackend } from './src/sqlite.js';
 import { getDepartures } from './src/departures.js';
 import { fetchFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
-import { getVehiclesForRoutes, vehiclesDirFromFeedsDir } from './src/vehicles.js';
+import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -131,14 +131,19 @@ const server = http.createServer(async (req, res) => {
 		const vehicles = path.match(/^\/vehicles\/([^/]+)$/);
 		if (vehicles) {
 			const stopCode = vehicles[1];
-			const routeNames = await storage.getRoutesForStop(stopCode);
-			if (!routeNames.length) return respond(res, 404, { message: `Stop ${stopCode} not found` });
-			// Build delay map from departures so vehicle cards can show delay info.
+			const windowMins = parseInt(url.searchParams.get('window') ?? '10');
 			const deps = await getDepartures(stopCode, storage, FEEDS_DIR);
-			const delayByTripId = new Map(
-				(deps?.departures ?? []).map((d) => [d.trip_id, d.delay_seconds])
+			if (!deps) return respond(res, 404, { message: `Stop ${stopCode} not found` });
+			const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+			const tripMap = new Map(
+				deps.departures
+					.filter((d) => {
+						const [h, m] = (d.estimated_departure ?? d.scheduled_departure).split(':').map(Number);
+						return (h * 60 + m) - nowMins <= windowMins;
+					})
+					.map((d) => [d.trip_id, { route: d.route_short_name, delay: d.delay_seconds }])
 			);
-			const positions = await getVehiclesForRoutes(new Set(routeNames), delayByTripId, VEHICLES_DIR);
+			const positions = await getVehiclesForTrips(tripMap, VEHICLES_DIR);
 			return respond(res, 200, positions);
 		}
 
