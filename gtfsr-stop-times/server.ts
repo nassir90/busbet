@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createSqliteBackend } from './src/sqlite.js';
 import { getDepartures } from './src/departures.js';
 import { fetchFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
+import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -23,9 +24,10 @@ function loadEnv(path: string) {
 }
 loadEnv('.env');
 
-const PORT     = parseInt(process.env.GTFSR_STOP_TIMES_PORT ?? '8110');
-const DB_PATH  = process.env.DATABASE_URL   ?? '/home/lab/Projects/busbet/app/data/busbet.db';
-const FEEDS_DIR = process.env.GTFS_FEEDS_DIR ?? '/home/lab/Projects/busbet/gtfsr-collector/data/feeds';
+const PORT        = parseInt(process.env.GTFSR_STOP_TIMES_PORT ?? '8110');
+const DB_PATH     = process.env.DATABASE_URL   ?? '/home/lab/Projects/busbet/app/data/busbet.db';
+const FEEDS_DIR   = process.env.GTFS_FEEDS_DIR ?? '/home/lab/Projects/busbet/gtfsr-collector/data/feeds';
+const VEHICLES_DIR = process.env.GTFS_VEHICLES_DIR ?? vehiclesDirFromFeedsDir(FEEDS_DIR);
 
 const storage = createSqliteBackend(DB_PATH);
 
@@ -122,6 +124,19 @@ const server = http.createServer(async (req, res) => {
 		if (path === '/trip-updates') {
 			const feed = await fetchFeed(FEEDS_DIR);
 			return respond(res, 200, buildTripUpdatesJson(feed));
+		}
+
+		// /vehicles/{stop_code} — active vehicle positions for trips serving this stop,
+		// with server-derived bearings (NTA feed bearing field is always 0).
+		const vehicles = path.match(/^\/vehicles\/([^/]+)$/);
+		if (vehicles) {
+			const result = await getDepartures(vehicles[1], storage, FEEDS_DIR);
+			if (!result) return respond(res, 404, { message: `Stop ${vehicles[1]} not found` });
+			const tripMap = new Map(
+				result.departures.map((d) => [d.trip_id, { route: d.route_short_name, delay: d.delay_seconds }])
+			);
+			const positions = await getVehiclesForTrips(tripMap, VEHICLES_DIR);
+			return respond(res, 200, positions);
 		}
 
 		respond(res, 404, { message: 'Not found' });
