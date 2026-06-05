@@ -253,6 +253,20 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 			return r.rows as unknown as RouteStop[];
 		},
 
+		async getRoutesForStop(stopCode: string): Promise<string[]> {
+			const r = await db.execute({
+				sql: `SELECT DISTINCT r.route_short_name
+				      FROM routes r
+				      JOIN trips t ON t.route_id = r.route_id
+				      JOIN stop_times st ON st.trip_id = t.trip_id
+				      JOIN stops s ON s.stop_id = st.stop_id
+				      WHERE s.stop_code = ?
+				      LIMIT 50`,
+				args: [stopCode]
+			});
+			return r.rows.map((row) => row.route_short_name as string);
+		},
+
 		async getRouteTrips(routeShortName: string, directionId?: number): Promise<string[]> {
 			const dirClause = directionId !== undefined ? 'AND t.direction_id = ?' : '';
 			const args: (string | number)[] = [routeShortName];

@@ -74,6 +74,7 @@ export interface GtfsStorage {
 		hourOffset?: number
 	): Promise<Departure[]>;
 	getTripStopTimes(tripId: string): Promise<StopTime[]>;
+	getRoutesForStop(stopCode: string): Promise<string[]>;
 	getRouteTrips(routeShortName: string, directionId?: number): Promise<string[]>;
 	searchRoutes(query: string): Promise<RouteDirection[]>;
 	getRouteStops(routeShortName: string, directionId: number): Promise<RouteStop[]>;
