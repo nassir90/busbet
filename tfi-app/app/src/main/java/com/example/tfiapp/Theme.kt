@@ -12,7 +12,8 @@ import kotlinx.coroutines.flow.map
 
 enum class AppTheme(val label: String) {
     DEFAULT("Default (purple)"),
-    TFI("TFI (blue & yellow)");
+    TFI("TFI (blue & yellow)"),
+    GREEN("TFI (green)");
 
     companion object {
         fun from(s: String?): AppTheme = entries.firstOrNull { it.name == s } ?: DEFAULT
@@ -67,9 +68,29 @@ val TfiColorSchemeDark = darkColorScheme(
     onSurfaceVariant = Color(0xFFB8BCC2),
 )
 
+val GreenColorScheme = lightColorScheme(
+    primary = Color(0xFF3D5663),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFBDD0D9),
+    onPrimaryContainer = Color(0xFF0D1E26),
+    secondary = Color(0xFF3D5663),
+    onSecondary = Color.White,
+)
+
+val GreenColorSchemeDark = darkColorScheme(
+    primary = Color(0xFF3D5663),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF243238),
+    onPrimaryContainer = Color(0xFFBDD0D9),
+    secondary = Color(0xFF3D5663),
+    onSecondary = Color.White,
+)
+
 fun colorsFor(theme: AppTheme, isDark: Boolean): ColorScheme = when {
     theme == AppTheme.TFI && isDark -> TfiColorSchemeDark
     theme == AppTheme.TFI -> TfiColorScheme
+    theme == AppTheme.GREEN && isDark -> GreenColorSchemeDark
+    theme == AppTheme.GREEN -> GreenColorScheme
     isDark -> DefaultColorSchemeDark
     else -> DefaultColorScheme
 }

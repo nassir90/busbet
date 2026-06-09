@@ -9,8 +9,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalTime
@@ -32,8 +33,10 @@ fun StopScreen(
     var initialError by remember(code) { mutableStateOf<String?>(null) }
     var lastFetched by remember(code) { mutableStateOf<LocalTime?>(null) }
     var stale by remember(code) { mutableStateOf(false) }
+    var vehicles by remember(code) { mutableStateOf<List<VehiclePosition>>(emptyList()) }
+    var refreshKey by remember(code) { mutableStateOf(0) }
 
-    LaunchedEffect(code) {
+    LaunchedEffect(code, refreshKey) {
         while (true) {
             runCatching { Api.service.departures(code) }
                 .onSuccess {
@@ -48,6 +51,9 @@ fun StopScreen(
                     if (data != null) stale = true
                     else initialError = it.message ?: "error"
                 }
+            runCatching { Api.service.vehicles(code) }
+                .onSuccess { vehicles = it }
+                .onFailure { android.util.Log.w("tfi", "vehicles $code fetch failed", it) }
             delay(30_000)
         }
     }
@@ -55,9 +61,26 @@ fun StopScreen(
     val isFavourite = favourites.any { it.code == code }
     val title = data?.stop?.stopName ?: "Stop $code"
 
+    val stop = data?.stop
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text(title, maxLines = 1) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(4.dp))
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                if (isFavourite) favStore.remove(code)
+                                else favStore.add(code, stop?.stopName ?: code)
+                            }
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                    ) { Text(if (isFavourite) "★" else "☆") }
+                }
+            },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -72,20 +95,24 @@ fun StopScreen(
             },
             actions = {
                 if (stale) StaleBadge()
-                val stop = data?.stop
                 TextButton(
-                    onClick = {
-                        scope.launch {
-                            if (isFavourite) favStore.remove(code)
-                            else favStore.add(code, stop?.stopName ?: code)
-                        }
-                    },
+                    onClick = { refreshKey++ },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text(if (isFavourite) "★ Saved" else "☆ Save") }
+                ) { Text("↻") }
             },
         )
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            // Map sits at the top, just below the app bar
+            if (stop?.stopLat != null && stop.stopLon != null) {
+                StopMap(
+                    lat = stop.stopLat,
+                    lon = stop.stopLon,
+                    vehicles = vehicles,
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                )
+            }
+
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -99,10 +126,10 @@ fun StopScreen(
             HorizontalDivider()
 
             when {
-                initialError != null && data == null -> EmptyMessage("Could not load departures.\n$initialError")
-                data == null -> EmptyMessage("Loading…")
-                data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.")
-                else -> LazyColumn(Modifier.fillMaxSize()) {
+                initialError != null && data == null -> EmptyMessage("Could not load departures.\n$initialError", Modifier.weight(1f))
+                data == null -> EmptyMessage("Loading…", Modifier.weight(1f))
+                data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.", Modifier.weight(1f))
+                else -> LazyColumn(Modifier.weight(1f)) {
                     items(data!!.departures) { d ->
                         DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, code) })
                         HorizontalDivider()
@@ -114,8 +141,8 @@ fun StopScreen(
 }
 
 @Composable
-private fun EmptyMessage(text: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun EmptyMessage(text: String, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -125,7 +152,7 @@ fun DepartureRow(d: Departure, onOpenRoute: () -> Unit) {
     val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
     val effective = d.estimatedDeparture ?: d.scheduledDeparture
     val effectiveMins = toMinutes(effective)
-    val due = effectiveMins - nowMins
+    val due = (effectiveMins - nowMins).let { if (it < -720) it + 1440 else it }
 
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),

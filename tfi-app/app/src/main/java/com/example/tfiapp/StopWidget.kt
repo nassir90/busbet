@@ -3,6 +3,7 @@ package com.example.tfiapp
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -46,12 +47,48 @@ val STOP_NAME_KEY = stringPreferencesKey("stopName")
 
 private val FG_DEFAULT = Color(0xFF6750A4)
 private val FG_TFI = Color(0xFF003B8C)
-private val BG_CARD = Color(0xFFFFFFFF)
-private val TEXT_PRIMARY = Color(0xFF111111)
-private val TEXT_SECONDARY = Color(0xFF666666)
-private val TEXT_TERTIARY = Color(0xFF999999)
-private val DIVIDER = Color(0xFFE6E0EC)
-private val DUE_RED = Color(0xFFB00020)
+private val FG_GREEN = Color(0xFF3D5663)
+private val FG_DEFAULT_DARK = Color(0xFFD0BCFF)
+private val FG_TFI_DARK = Color(0xFF003B8C)
+private val FG_GREEN_DARK = Color(0xFF3D5663)
+
+private data class Palette(
+    val cardBg: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val textTertiary: Color,
+    val divider: Color,
+    val dueRed: Color,
+    val refreshBg: Color,
+    val routePillText: Color,
+    val accent: Color,
+)
+
+private fun palette(theme: AppTheme, isDark: Boolean): Palette = if (isDark) {
+    Palette(
+        cardBg = Color(0xFF1A1F26),
+        textPrimary = Color(0xFFE3E5E8),
+        textSecondary = Color(0xFFB8BCC2),
+        textTertiary = Color(0xFF8A8E94),
+        divider = Color(0xFF2A2F36),
+        dueRed = Color(0xFFFF6679),
+        refreshBg = Color(0xFF2A2F36),
+        routePillText = Color.White,
+        accent = when (theme) { AppTheme.TFI -> FG_TFI_DARK; AppTheme.GREEN -> FG_GREEN_DARK; else -> FG_DEFAULT_DARK },
+    )
+} else {
+    Palette(
+        cardBg = Color(0xFFFFFFFF),
+        textPrimary = Color(0xFF111111),
+        textSecondary = Color(0xFF666666),
+        textTertiary = Color(0xFF999999),
+        divider = Color(0xFFE6E0EC),
+        dueRed = Color(0xFFB00020),
+        refreshBg = Color(0xFFF1ECF6),
+        routePillText = Color.White,
+        accent = when (theme) { AppTheme.TFI -> FG_TFI; AppTheme.GREEN -> FG_GREEN; else -> FG_DEFAULT },
+    )
+}
 
 class StopWidget : GlanceAppWidget() {
     override val stateDefinition = PreferencesGlanceStateDefinition
@@ -63,7 +100,9 @@ class StopWidget : GlanceAppWidget() {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
 
         val theme = runCatching { ThemeStore(context).flow.first() }.getOrDefault(AppTheme.DEFAULT)
-        val accent = if (theme == AppTheme.TFI) FG_TFI else FG_DEFAULT
+        val isDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val pal = palette(theme, isDark)
 
         val deps: List<Departure>? = if (code != null) {
             runCatching { Api.service.departures(code).departures.take(3) }.getOrNull()
@@ -72,7 +111,7 @@ class StopWidget : GlanceAppWidget() {
         val asOf = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
         provideContent {
-            WidgetUI(context, appWidgetId, code, name, deps, accent, asOf)
+            WidgetUI(context, appWidgetId, code, name, deps, pal, asOf)
         }
     }
 
@@ -83,7 +122,7 @@ class StopWidget : GlanceAppWidget() {
         code: String?,
         name: String?,
         deps: List<Departure>?,
-        accent: Color,
+        pal: Palette,
         asOf: String,
     ) {
         val openIntent = if (code == null) {
@@ -102,7 +141,7 @@ class StopWidget : GlanceAppWidget() {
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .background(BG_CARD)
+                .background(pal.cardBg)
                 .cornerRadius(20.dp)
                 .padding(horizontal = 16.dp, vertical = 14.dp)
                 .clickable(actionStartActivity(openIntent)),
@@ -114,7 +153,7 @@ class StopWidget : GlanceAppWidget() {
                 ) {
                     Text(
                         "Tap to choose a stop",
-                        style = TextStyle(color = ColorProvider(TEXT_SECONDARY), fontSize = 14.sp),
+                        style = TextStyle(color = ColorProvider(pal.textSecondary), fontSize = 14.sp),
                     )
                 }
                 return@Column
@@ -128,7 +167,7 @@ class StopWidget : GlanceAppWidget() {
                     Text(
                         name ?: "Stop $code",
                         style = TextStyle(
-                            color = ColorProvider(TEXT_PRIMARY),
+                            color = ColorProvider(pal.textPrimary),
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                         ),
@@ -136,12 +175,12 @@ class StopWidget : GlanceAppWidget() {
                     )
                     Text(
                         "Stop $code · as of $asOf",
-                        style = TextStyle(color = ColorProvider(TEXT_TERTIARY), fontSize = 10.sp),
+                        style = TextStyle(color = ColorProvider(pal.textTertiary), fontSize = 10.sp),
                     )
                 }
                 Box(
                     modifier = GlanceModifier
-                        .background(Color(0xFFF1ECF6))
+                        .background(pal.refreshBg)
                         .cornerRadius(20.dp)
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                         .clickable(actionRunCallback<RefreshStopWidget>()),
@@ -150,7 +189,7 @@ class StopWidget : GlanceAppWidget() {
                     Text(
                         "↻",
                         style = TextStyle(
-                            color = ColorProvider(accent),
+                            color = ColorProvider(pal.accent),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                         ),
@@ -159,25 +198,25 @@ class StopWidget : GlanceAppWidget() {
             }
 
             Spacer(GlanceModifier.height(8.dp))
-            Box(modifier = GlanceModifier.fillMaxWidth().height(1.dp).background(DIVIDER)) {}
+            Box(modifier = GlanceModifier.fillMaxWidth().height(1.dp).background(pal.divider)) {}
             Spacer(GlanceModifier.height(6.dp))
 
             when {
                 deps == null -> Text(
                     "Could not load",
-                    style = TextStyle(color = ColorProvider(DUE_RED), fontSize = 12.sp),
+                    style = TextStyle(color = ColorProvider(pal.dueRed), fontSize = 12.sp),
                 )
                 deps.isEmpty() -> Text(
                     "No upcoming departures",
-                    style = TextStyle(color = ColorProvider(TEXT_SECONDARY), fontSize = 12.sp),
+                    style = TextStyle(color = ColorProvider(pal.textSecondary), fontSize = 12.sp),
                 )
-                else -> deps.forEach { d -> DepRow(d, accent) }
+                else -> deps.forEach { d -> DepRow(d, pal) }
             }
         }
     }
 
     @Composable
-    private fun DepRow(d: Departure, accent: Color) {
+    private fun DepRow(d: Departure, pal: Palette) {
         val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
         val effective = d.estimatedDeparture ?: d.scheduledDeparture
         val parts = effective.split(":").map { it.toInt() }
@@ -194,7 +233,7 @@ class StopWidget : GlanceAppWidget() {
         ) {
             Box(
                 modifier = GlanceModifier
-                    .background(accent)
+                    .background(pal.accent)
                     .cornerRadius(6.dp)
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 contentAlignment = Alignment.Center,
@@ -202,7 +241,7 @@ class StopWidget : GlanceAppWidget() {
                 Text(
                     d.routeShortName,
                     style = TextStyle(
-                        color = ColorProvider(Color.White),
+                        color = ColorProvider(pal.routePillText),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                     ),
@@ -211,7 +250,7 @@ class StopWidget : GlanceAppWidget() {
             Spacer(GlanceModifier.width(10.dp))
             Text(
                 d.tripHeadsign,
-                style = TextStyle(color = ColorProvider(TEXT_PRIMARY), fontSize = 13.sp),
+                style = TextStyle(color = ColorProvider(pal.textPrimary), fontSize = 13.sp),
                 maxLines = 1,
                 modifier = GlanceModifier.defaultWeight(),
             )
@@ -219,7 +258,7 @@ class StopWidget : GlanceAppWidget() {
             Text(
                 dueLabel,
                 style = TextStyle(
-                    color = ColorProvider(if (due <= 0) DUE_RED else TEXT_PRIMARY),
+                    color = ColorProvider(if (due <= 0) pal.dueRed else pal.textPrimary),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                 ),

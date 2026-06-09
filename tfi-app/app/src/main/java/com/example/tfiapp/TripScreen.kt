@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -76,8 +77,16 @@ fun TripScreen(
 @Composable
 private fun TripStopsList(d: TripDetail, fromStopCode: String?, onOpenStop: (String) -> Unit) {
     val nowMins = remember { LocalTime.now().let { it.hour * 60 + it.minute } }
+    val listState = rememberLazyListState()
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LaunchedEffect(fromStopCode) {
+        if (fromStopCode != null) {
+            val idx = d.stops.indexOfFirst { it.stopCode == fromStopCode }
+            if (idx >= 0) listState.scrollToItem(idx)
+        }
+    }
+
+    LazyColumn(Modifier.fillMaxSize(), state = listState) {
         items(d.stops, key = { it.stopSequence }) { stop ->
             val effective = stop.estimatedDeparture ?: stop.scheduledDeparture
             val effectiveMins = toMin(effective)

@@ -14,6 +14,8 @@ data class Stop(
     @SerializedName("stop_id") val stopId: String,
     @SerializedName("stop_code") val stopCode: String,
     @SerializedName("stop_name") val stopName: String,
+    @SerializedName("stop_lat") val stopLat: Double? = null,
+    @SerializedName("stop_lon") val stopLon: Double? = null,
 )
 
 data class Departure(
@@ -59,6 +61,15 @@ data class TripStop(
     val realtime: Boolean,
 )
 
+data class VehiclePosition(
+    @SerializedName("trip_id") val tripId: String,
+    @SerializedName("route_short_name") val routeShortName: String,
+    val lat: Double,
+    val lon: Double,
+    val bearing: Float?,          // null until second poll gives us a heading
+    @SerializedName("delay_seconds") val delaySeconds: Int?,
+)
+
 data class TripDetail(
     @SerializedName("trip_id") val tripId: String,
     @SerializedName("route_short_name") val routeShortName: String,
@@ -85,6 +96,9 @@ interface GtfsApi {
 
     @GET("trips/{tripId}")
     suspend fun trip(@Path("tripId") tripId: String): TripDetail
+
+    @GET("vehicles/{stopCode}")
+    suspend fun vehicles(@Path("stopCode") stopCode: String): List<VehiclePosition>
 }
 
 object Api {

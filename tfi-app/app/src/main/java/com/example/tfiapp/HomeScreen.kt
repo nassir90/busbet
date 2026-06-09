@@ -74,6 +74,7 @@ fun HomeScreen(
     }
 
     var menuOpen by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableStateOf(0) }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -85,6 +86,10 @@ fun HomeScreen(
             ),
             actions = {
                 if (anyStale) StaleBadge()
+                TextButton(
+                    onClick = { refreshKey++ },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                ) { Text("↻") }
                 Box {
                     TextButton(
                         onClick = { menuOpen = true },
@@ -189,6 +194,7 @@ fun HomeScreen(
                                 onRemove = { scope.launch { favStore.remove(fav.code) } },
                                 handleModifier = handleModifier,
                                 onStaleChanged = { staleCodes[fav.code] = it },
+                                refreshKey = refreshKey,
                             )
                         }
                     }
@@ -207,7 +213,7 @@ fun HomeScreen(
 
 @Composable
 fun StaleBadge() {
-    val amber = Color(0xFFB45309)
+    val amber = Color(0xFFFDE68A)
     Row(
         Modifier.padding(end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -237,13 +243,14 @@ private fun FavouriteCard(
     onRemove: () -> Unit,
     handleModifier: Modifier,
     onStaleChanged: (Boolean) -> Unit,
+    refreshKey: Int = 0,
 ) {
     var deps by remember(favourite.code) {
         mutableStateOf(DeparturesCache.get(favourite.code)?.departures?.take(3))
     }
     var initialError by remember(favourite.code) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(favourite.code) {
+    LaunchedEffect(favourite.code, refreshKey) {
         while (true) {
             runCatching { Api.service.departures(favourite.code) }
                 .onSuccess {
