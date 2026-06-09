@@ -97,6 +97,12 @@ const server = http.createServer(async (req, res) => {
 			return respond(res, 200, result);
 		}
 
+		const routesForStop = path.match(/^\/stop-routes\/([^/]+)$/);
+		if (routesForStop) {
+			const routes = await storage.getRoutesForStop(routesForStop[1]);
+			return respond(res, 200, routes);
+		}
+
 		if (path === '/routes') {
 			const q = url.searchParams.get('q')?.trim() ?? '';
 			if (q.length < 1) return respond(res, 400, { message: 'q required' });

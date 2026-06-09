@@ -23,6 +23,7 @@ fun StopScreen(
     code: String,
     onBack: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
+    onAddNotification: (stopCode: String, stopName: String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
@@ -99,6 +100,10 @@ fun StopScreen(
                     onClick = { refreshKey++ },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
                 ) { Text("↻") }
+                TextButton(
+                    onClick = { onAddNotification(code, stop?.stopName ?: code) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                ) { Text("🔔") }
             },
         )
     }) { padding ->

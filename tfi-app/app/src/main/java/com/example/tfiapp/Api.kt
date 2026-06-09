@@ -99,6 +99,9 @@ interface GtfsApi {
 
     @GET("vehicles/{stopCode}")
     suspend fun vehicles(@Path("stopCode") stopCode: String): List<VehiclePosition>
+
+    @GET("stop-routes/{stopCode}")
+    suspend fun stopRoutes(@Path("stopCode") stopCode: String): List<String>
 }
 
 object Api {
