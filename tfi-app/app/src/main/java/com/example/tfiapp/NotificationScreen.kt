@@ -91,7 +91,7 @@ fun NotificationScreen(
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) permLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        NotificationWorker.schedule(context)
+        BusNotificationService.start(context)
     }
 
     Scaffold(
@@ -175,6 +175,7 @@ fun NotificationScreen(
             draft = if (editTarget == null) createDraft else null,
             onSave = { w ->
                 scope.launch { store.save(w) }
+                BusNotificationService.refresh(context)
                 showCreate = false; editTarget = null
             },
             onDelete = { id ->
@@ -250,8 +251,8 @@ private fun CalendarGrid(
     val onSurfaceColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     BoxWithConstraints(modifier) {
-        // Derive hour height from available space so the full grid fits without scrolling
-        val hourHeightDp  = maxHeight / totalHours
+        // Divide by totalHours+1 so one hour-slot of space remains below the 21 line
+        val hourHeightDp  = maxHeight / (totalHours + 1)
         val hourHeightPx  = with(density) { hourHeightDp.toPx() }
         val dayColWidth   = (maxWidth - timeLabelWDp) / visibleDays.size
         val dayColWidthPx = with(density) { dayColWidth.toPx() }
