@@ -14,7 +14,9 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,6 +64,7 @@ sealed class Screen {
 fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = null) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
+    val timeController = remember { TimeController() }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val scope = rememberCoroutineScope()
 
@@ -79,6 +82,14 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
 
     var notifPrefill by remember { mutableStateOf<Pair<String, String>?>(null) }
 
+    // Debounce time-travel selection so spinning the drums doesn't refetch the board
+    // on every detent — only the settled instant reaches the screens.
+    LaunchedEffect(timeController.querySec) {
+        val q = timeController.querySec
+        if (q == null) timeController.committedSec = null
+        else { delay(300); timeController.committedSec = q }
+    }
+
     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
         if (page == 1) {
             NotificationScreen(prefill = notifPrefill, onPrefillConsumed = { notifPrefill = null })
@@ -90,6 +101,7 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
     Box(Modifier.fillMaxSize()) {
         HomeScreen(
             settingsStore = settingsStore,
+            timeController = timeController,
             onOpenStop = { stack.add(Screen.StopBoard(it)) },
             onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
             onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
@@ -106,6 +118,7 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
                 )
                 is Screen.StopBoard -> StopScreen(
                     code = layer.code,
+                    timeController = timeController,
                     onBack = { pop() },
                     onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
                     onAddNotification = { stopCode, stopName ->

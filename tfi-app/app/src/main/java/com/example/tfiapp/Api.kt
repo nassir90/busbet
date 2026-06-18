@@ -86,7 +86,10 @@ interface GtfsApi {
     suspend fun stop(@Path("code") code: String): Stop
 
     @GET("departures/{code}")
-    suspend fun departures(@Path("code") code: String): DeparturesResponse
+    suspend fun departures(
+        @Path("code") code: String,
+        @Query("time") time: Long? = null,
+    ): DeparturesResponse
 
     @GET("routes")
     suspend fun searchRoutes(@Query("q") q: String): List<RouteDirection>
@@ -101,7 +104,10 @@ interface GtfsApi {
     suspend fun trip(@Path("tripId") tripId: String): TripDetail
 
     @GET("vehicles/{stopCode}")
-    suspend fun vehicles(@Path("stopCode") stopCode: String): List<VehiclePosition>
+    suspend fun vehicles(
+        @Path("stopCode") stopCode: String,
+        @Query("time") time: Long? = null,
+    ): List<VehiclePosition>
 
     @GET("stop-routes/{stopCode}")
     suspend fun stopRoutes(@Path("stopCode") stopCode: String): List<String>

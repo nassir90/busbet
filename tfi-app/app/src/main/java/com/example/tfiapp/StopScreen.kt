@@ -25,6 +25,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun StopScreen(
     code: String,
+    timeController: TimeController,
     onBack: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onAddNotification: (stopCode: String, stopName: String) -> Unit = { _, _ -> },
@@ -41,10 +42,11 @@ fun StopScreen(
     var vehicles by remember(code) { mutableStateOf<List<VehiclePosition>>(emptyList()) }
     var refreshKey by remember(code) { mutableStateOf(0) }
     var isRefreshing by remember(code) { mutableStateOf(false) }
+    val querySec = timeController.committedSec
 
-    LaunchedEffect(code, refreshKey) {
+    LaunchedEffect(code, refreshKey, querySec) {
         while (true) {
-            runCatching { Api.service.departures(code) }
+            runCatching { Api.service.departures(code, querySec) }
                 .onSuccess {
                     data = it
                     DeparturesCache.put(code, it)
@@ -58,19 +60,22 @@ fun StopScreen(
                     if (data != null) stale = true
                     else initialError = it.message ?: "error"
                 }
-            runCatching { Api.service.vehicles(code) }
+            runCatching { Api.service.vehicles(code, querySec) }
                 .onSuccess { vehicles = it }
                 .onFailure {
                     if (it is CancellationException) throw it
                     android.util.Log.w("tfi", "vehicles $code fetch failed", it)
                 }
             isRefreshing = false
+            // When pinned to a historical instant the data won't change; poll only when live.
+            if (querySec != null) break
             delay(30_000)
         }
     }
 
     val isFavourite = favourites.any { it.code == code }
     val title = data?.stop?.stopName ?: "Stop $code"
+    var showTimePanel by remember { mutableStateOf(false) }
 
     val stop = data?.stop
     Scaffold(topBar = {
@@ -106,6 +111,7 @@ fun StopScreen(
             },
             actions = {
                 if (stale) StaleBadge()
+                TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
                 TextButton(
                     onClick = { onAddNotification(code, stop?.stopName ?: code) },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
@@ -114,6 +120,13 @@ fun StopScreen(
         )
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showTimePanel,
+                enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
+            ) {
+                TimeTravelPanel(timeController)
+            }
             // Map sits at the top, just below the app bar
             if (stop?.stopLat != null && stop.stopLon != null) {
                 StopMap(
@@ -145,10 +158,16 @@ fun StopScreen(
                     initialError != null && data == null -> EmptyMessage("Could not load departures.\n$initialError")
                     data == null -> EmptyMessage("Loading…")
                     data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.")
-                    else -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(data!!.departures) { d ->
-                            DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, code) })
-                            HorizontalDivider()
+                    else -> {
+                        val refNowMins = querySec?.let {
+                            java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
+                                .let { z -> z.hour * 60 + z.minute }
+                        } ?: LocalTime.now().let { it.hour * 60 + it.minute }
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            items(data!!.departures) { d ->
+                                DepartureRow(d, nowMins = refNowMins, onOpenRoute = { onOpenTrip(d.tripId, code) })
+                                HorizontalDivider()
+                            }
                         }
                     }
                 }
@@ -171,8 +190,11 @@ private fun EmptyMessage(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun DepartureRow(d: Departure, onOpenRoute: () -> Unit) {
-    val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
+fun DepartureRow(
+    d: Departure,
+    nowMins: Int = LocalTime.now().let { it.hour * 60 + it.minute },
+    onOpenRoute: () -> Unit,
+) {
     val effective = d.estimatedDeparture ?: d.scheduledDeparture
     val effectiveMins = toMinutes(effective)
     val due = (effectiveMins - nowMins).let { if (it < -720) it + 1440 else it }

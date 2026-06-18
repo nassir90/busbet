@@ -29,6 +29,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 @Composable
 fun HomeScreen(
     settingsStore: SettingsStore,
+    timeController: TimeController,
     onOpenStop: (String) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
@@ -105,6 +106,7 @@ fun HomeScreen(
 
     var refreshKey by remember { mutableStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var showTimePanel by remember { mutableStateOf(false) }
 
     Scaffold(
         // Let the favourites list draw under the nav bar; we add it back as content padding below.
@@ -119,6 +121,7 @@ fun HomeScreen(
             ),
             actions = {
                 if (anyStale) StaleBadge()
+                TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
                 TextButton(
                     onClick = onOpenSettings,
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
@@ -127,11 +130,19 @@ fun HomeScreen(
         )
     }) { padding ->
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        Column(
+        Column(Modifier.padding(padding).fillMaxSize()) {
+          androidx.compose.animation.AnimatedVisibility(
+              visible = showTimePanel,
+              enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
+              exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
+          ) {
+              TimeTravelPanel(timeController)
+          }
+          Column(
             Modifier
-                .padding(padding)
                 .padding(horizontal = 16.dp)
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
         ) {
             OutlinedTextField(
                 value = query,
@@ -248,6 +259,7 @@ fun HomeScreen(
                                 handleModifier = handleModifier,
                                 onStaleChanged = { staleCodes[fav.code] = it },
                                 refreshKey = refreshKey,
+                                timeSec = timeController.committedSec,
                             )
                         }
                     }
@@ -261,6 +273,7 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+          }
         }
     }
 }
@@ -335,6 +348,7 @@ private fun FavouriteCard(
     showHandle: Boolean = true,
     distanceLabel: String? = null,
     refreshKey: Int = 0,
+    timeSec: Long? = null,
 ) {
     var showRename by remember { mutableStateOf(false) }
     if (showRename) {
@@ -345,17 +359,17 @@ private fun FavouriteCard(
         )
     }
 
-    var deps by remember(favourite.code) {
-        mutableStateOf(DeparturesCache.get(favourite.code)?.departures?.take(3))
+    var deps by remember(favourite.code, timeSec) {
+        mutableStateOf(if (timeSec == null) DeparturesCache.get(favourite.code)?.departures?.take(3) else null)
     }
-    var initialError by remember(favourite.code) { mutableStateOf<String?>(null) }
+    var initialError by remember(favourite.code, timeSec) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(favourite.code, refreshKey) {
+    LaunchedEffect(favourite.code, refreshKey, timeSec) {
         while (true) {
-            runCatching { Api.service.departures(favourite.code) }
+            runCatching { Api.service.departures(favourite.code, timeSec) }
                 .onSuccess {
                     deps = it.departures.take(3)
-                    DeparturesCache.put(favourite.code, it)
+                    if (timeSec == null) DeparturesCache.put(favourite.code, it)
                     initialError = null
                     onStaleChanged(false)
                 }
@@ -365,6 +379,8 @@ private fun FavouriteCard(
                     if (deps != null) onStaleChanged(true)
                     else initialError = "${it::class.simpleName}: ${it.message}"
                 }
+            // Pinned to a historical instant: data is static, don't poll.
+            if (timeSec != null) break
             delay(30_000)
         }
     }
@@ -415,8 +431,14 @@ private fun FavouriteCard(
                         Text("Could not load", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     deps == null -> Text("Loading…", style = MaterialTheme.typography.bodySmall)
                     deps!!.isEmpty() -> Text("No upcoming departures", style = MaterialTheme.typography.bodySmall)
-                    else -> deps!!.forEach { d ->
-                        DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) })
+                    else -> {
+                        val refNowMins = timeSec?.let {
+                            java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
+                                .let { z -> z.hour * 60 + z.minute }
+                        } ?: java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+                        deps!!.forEach { d ->
+                            DepartureRow(d, nowMins = refNowMins, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) })
+                        }
                     }
                 }
             }
