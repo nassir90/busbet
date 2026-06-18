@@ -118,7 +118,10 @@ interface GtfsApi {
 /** Stateful write API (tfi-tenant-api) — separate host from the read-only GTFS proxy. */
 interface TenantApi {
     @POST("report")
-    suspend fun report(@Body body: ArrivalReport)
+    suspend fun report(@Body body: ArrivalReport): ReportResponse
+
+    @POST("reports/{id}/undo")
+    suspend fun undoReport(@Path("id") id: Long): UndoReportResponse
 }
 
 data class ArrivalReport(
@@ -129,6 +132,17 @@ data class ArrivalReport(
     val kind: String,                                          // "arrived" | "cancelled"
     @SerializedName("actual_time") val actualTime: String?,    // "HH:MM" local, null when cancelled
     @SerializedName("reported_at") val reportedAt: Long,       // epoch seconds
+)
+
+data class ReportResponse(
+    val ok: Boolean,
+    val id: Long,
+)
+
+data class UndoReportResponse(
+    val ok: Boolean,
+    val id: Long,
+    val undone: Boolean,
 )
 
 object Api {

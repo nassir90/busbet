@@ -29,9 +29,13 @@ fun ReportScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var submitting by remember { mutableStateOf(false) }
 
     fun submit(kind: String, actualTime: String?) {
+        if (submitting) return
         scope.launch {
+            submitting = true
             val report = ArrivalReport(
                 tripId = tripId,
                 stopCode = stopCode,
@@ -42,13 +46,26 @@ fun ReportScreen(
                 reportedAt = System.currentTimeMillis() / 1000,
             )
             runCatching { Api.tenant.report(report) }
-                .onSuccess {
-                    Toast.makeText(context, "Reported", Toast.LENGTH_SHORT).show()
+                .onSuccess { response ->
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Reported",
+                        actionLabel = "Undo",
+                        withDismissAction = true,
+                        duration = SnackbarDuration.Long,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        runCatching { Api.tenant.undoReport(response.id) }
+                            .onSuccess { Toast.makeText(context, "Report undone", Toast.LENGTH_SHORT).show() }
+                            .onFailure {
+                                Toast.makeText(context, "Undo failed: ${it.message ?: "error"}", Toast.LENGTH_LONG).show()
+                            }
+                    }
                     onBack()
                 }
                 .onFailure {
                     Toast.makeText(context, "Failed: ${it.message ?: "error"}", Toast.LENGTH_LONG).show()
                 }
+            submitting = false
         }
     }
 
@@ -63,23 +80,26 @@ fun ReportScreen(
         ).show()
     }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Report") },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-            navigationIcon = {
-                TextButton(
-                    onClick = onBack,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("←") }
-            },
-        )
-    }) { padding ->
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Report") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                navigationIcon = {
+                    TextButton(
+                        onClick = onBack,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
+                    ) { Text("←") }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             Modifier
                 .padding(padding)
@@ -142,10 +162,12 @@ fun ReportScreen(
             ) {
                 Button(
                     onClick = { pickArrivalTime() },
+                    enabled = !submitting,
                     modifier = Modifier.weight(1f).height(56.dp),
                 ) { Text("Arrived") }
                 Button(
                     onClick = { submit("cancelled", null) },
+                    enabled = !submitting,
                     modifier = Modifier.weight(1f).height(56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,

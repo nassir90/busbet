@@ -16,7 +16,7 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-        // Edit these to point at your hosts on the tailnet. Trailing slash required.
+        // Edit these to point at your hosts. Trailing slash required.
         buildConfigField "String", "API_BASE_URL", "\"http://lab.uzoukwu.net/gtfsr-stop-times/\""
         // Stateful write API (arrival/cancellation reports).
         buildConfigField "String", "TENANT_API_BASE_URL", "\"http://lab.uzoukwu.net/tfi-tenant-api/\""
