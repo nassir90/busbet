@@ -1,0 +1,13 @@
+[Unit]
+Description=BusBet tenant write API (arrival/cancellation reports)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lab/Projects/busbet/tfi-tenant-api
+ExecStart=npx tsx server.ts
+Restart=on-failure
+Slice=lab.slice
+
+[Install]
+WantedBy=default.target

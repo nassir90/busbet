@@ -1,0 +1,17 @@
+{
+  "name": "tfi-tenant-api",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Stateful, tenant-aware write API for BusBet (arrival/cancellation reports). Consumes the read-only gtfsr-stop-times API for enrichment.",
+  "scripts": {
+    "dev": "tsx server.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^6.0.3"
+  }
+}
