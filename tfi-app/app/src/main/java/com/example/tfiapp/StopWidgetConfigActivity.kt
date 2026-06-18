@@ -70,7 +70,7 @@ class StopWidgetConfigActivity : ComponentActivity() {
             updateAppWidgetState(applicationContext, PreferencesGlanceStateDefinition, glanceId) { prefs ->
                 val updated: MutablePreferences = prefs.toMutablePreferences()
                 updated[STOP_CODE_KEY] = fav.code
-                updated[STOP_NAME_KEY] = fav.name
+                updated[STOP_NAME_KEY] = fav.displayName
                 updated
             }
             StopWidget().update(applicationContext, glanceId)
@@ -109,7 +109,7 @@ private fun PickerScreen(onPicked: (Favourite) -> Unit, onCancel: () -> Unit) {
                             .clickable { onPicked(fav) },
                     ) {
                         Column(Modifier.padding(16.dp)) {
-                            Text(fav.name, style = MaterialTheme.typography.titleMedium)
+                            Text(fav.displayName, style = MaterialTheme.typography.titleMedium)
                             Text(
                                 fav.code,
                                 style = MaterialTheme.typography.labelSmall,

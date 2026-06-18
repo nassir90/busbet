@@ -5,6 +5,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -104,5 +105,17 @@ class ThemeStore(private val context: Context) {
 
     suspend fun set(theme: AppTheme) {
         context.dataStore.edit { it[THEME_KEY] = theme.name }
+    }
+}
+
+private val LOCATION_AWARE_KEY = booleanPreferencesKey("location_aware")
+
+class SettingsStore(private val context: Context) {
+    val locationAware: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[LOCATION_AWARE_KEY] ?: false
+    }
+
+    suspend fun setLocationAware(enabled: Boolean) {
+        context.dataStore.edit { it[LOCATION_AWARE_KEY] = enabled }
     }
 }

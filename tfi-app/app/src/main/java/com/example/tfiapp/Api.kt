@@ -82,6 +82,9 @@ interface GtfsApi {
     @GET("stops")
     suspend fun searchStops(@Query("q") q: String): List<Stop>
 
+    @GET("stops/{code}")
+    suspend fun stop(@Path("code") code: String): Stop
+
     @GET("departures/{code}")
     suspend fun departures(@Path("code") code: String): DeparturesResponse
 

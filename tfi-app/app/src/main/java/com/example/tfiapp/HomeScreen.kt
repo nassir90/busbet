@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -27,17 +28,24 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    themeStore: ThemeStore,
-    currentTheme: AppTheme,
+    settingsStore: SettingsStore,
     onOpenStop: (String) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
     val favourites by favStore.flow.collectAsState(initial = emptyList())
+    val locationAware by settingsStore.locationAware.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
+
+    // Current location for distance sorting (refreshed when location-aware mode turns on)
+    var userLocation by remember { mutableStateOf<android.location.Location?>(null) }
+    LaunchedEffect(locationAware) {
+        userLocation = if (locationAware) LocationProvider.current(context) else null
+    }
 
     var query by rememberSaveable { mutableStateOf("") }
     var stopResults by remember { mutableStateOf<List<Stop>>(emptyList()) }
@@ -65,18 +73,43 @@ fun HomeScreen(
     var localOrder by remember { mutableStateOf(favourites) }
     LaunchedEffect(favourites) { localOrder = favourites }
 
+    // Backfill coordinates for favourites added before location-aware mode existed.
+    LaunchedEffect(locationAware, favourites) {
+        if (!locationAware) return@LaunchedEffect
+        favourites.filter { it.lat == null || it.lon == null }.forEach { fav ->
+            runCatching { Api.service.stop(fav.code) }
+                .onSuccess { s ->
+                    if (s.stopLat != null && s.stopLon != null) favStore.setCoords(fav.code, s.stopLat, s.stopLon)
+                }
+        }
+    }
+
+    // When location-aware and we have a fix, present favourites sorted by distance
+    // (stops without known coordinates sink to the bottom); otherwise manual drag order.
+    val sortByDistance = locationAware && userLocation != null
+    val displayList = if (sortByDistance) {
+        favourites.sortedBy { f ->
+            if (f.lat != null && f.lon != null)
+                LocationProvider.distanceMeters(userLocation!!.latitude, userLocation!!.longitude, f.lat, f.lon)
+            else Float.MAX_VALUE
+        }
+    } else localOrder
+
     val staleCodes = remember { mutableStateMapOf<String, Boolean>() }
-    val anyStale = localOrder.any { staleCodes[it.code] == true }
+    val anyStale = displayList.any { staleCodes[it.code] == true }
 
     val listState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
         localOrder = localOrder.toMutableList().apply { add(to.index, removeAt(from.index)) }
     }
 
-    var menuOpen by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
-    Scaffold(topBar = {
+    Scaffold(
+        // Let the favourites list draw under the nav bar; we add it back as content padding below.
+        contentWindowInsets = WindowInsets.statusBars,
+        topBar = {
         TopAppBar(
             title = { Text("TFI Live Departures") },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -87,41 +120,17 @@ fun HomeScreen(
             actions = {
                 if (anyStale) StaleBadge()
                 TextButton(
-                    onClick = { refreshKey++ },
+                    onClick = onOpenSettings,
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("↻") }
-                Box {
-                    TextButton(
-                        onClick = { menuOpen = true },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                    ) { Text("⋮") }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        Text(
-                            "Theme",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                        AppTheme.entries.forEach { t ->
-                            DropdownMenuItem(
-                                text = { Text(t.label) },
-                                trailingIcon = { if (t == currentTheme) Text("✓") },
-                                onClick = {
-                                    scope.launch { themeStore.set(t) }
-                                    menuOpen = false
-                                },
-                            )
-                        }
-                    }
-                }
+                ) { Text("☰") }
             },
         )
     }) { padding ->
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         Column(
             Modifier
                 .padding(padding)
                 .padding(horizontal = 16.dp)
-                .padding(top = 0.dp, bottom = 16.dp)
                 .fillMaxSize()
         ) {
             OutlinedTextField(
@@ -131,6 +140,15 @@ fun HomeScreen(
                 placeholder = { Text("Stop name or number e.g. 3368") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                trailingIcon = if (query.isNotEmpty()) {
+                    {
+                        TextButton(
+                            onClick = { query = "" },
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 1.dp).padding(end = 8.dp),
+                        ) { Text("✕") }
+                    }
+                } else null,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
@@ -168,36 +186,72 @@ fun HomeScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            if (localOrder.isNotEmpty()) {
-                Text("Favourites", style = MaterialTheme.typography.titleMedium)
+            if (displayList.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Favourites", style = MaterialTheme.typography.titleMedium)
+                    if (sortByDistance) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "· by distance",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        scope.launch {
+                            isRefreshing = true
+                            refreshKey++
+                            delay(900)
+                            isRefreshing = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = navBottom + 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(localOrder, key = { it.code }) { fav ->
+                    items(displayList, key = { it.code }) { fav ->
                         ReorderableItem(reorderState, key = fav.code) { isDragging ->
-                            val handleModifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .draggableHandle(
-                                    onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                                    onDragStopped = {
-                                        scope.launch { favStore.reorder(localOrder.map { it.code }) }
-                                    },
+                            // Manual reordering only applies when not sorting by distance.
+                            val handleModifier = if (sortByDistance) Modifier
+                                else Modifier
+                                    .padding(horizontal = 8.dp)
+                                    .draggableHandle(
+                                        onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                                        onDragStopped = {
+                                            scope.launch { favStore.reorder(localOrder.map { it.code }) }
+                                        },
+                                    )
+                            val distanceLabel = if (sortByDistance && fav.lat != null && fav.lon != null) {
+                                val m = LocationProvider.distanceMeters(
+                                    userLocation!!.latitude, userLocation!!.longitude, fav.lat, fav.lon,
                                 )
+                                if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000f)
+                            } else null
                             FavouriteCard(
                                 favourite = fav,
                                 isDragging = isDragging,
+                                showHandle = !sortByDistance,
+                                distanceLabel = distanceLabel,
                                 onOpen = { onOpenStop(fav.code) },
                                 onOpenTrip = onOpenTrip,
                                 onRemove = { scope.launch { favStore.remove(fav.code) } },
+                                onSetCustomName = { name -> scope.launch { favStore.setCustomName(fav.code, name) } },
+                                onToggleCollapsed = { scope.launch { favStore.setCollapsed(fav.code, !fav.collapsed) } },
                                 handleModifier = handleModifier,
                                 onStaleChanged = { staleCodes[fav.code] = it },
                                 refreshKey = refreshKey,
                             )
                         }
                     }
+                }
                 }
             } else {
                 Spacer(Modifier.height(24.dp))
@@ -225,6 +279,39 @@ fun StaleBadge() {
 }
 
 @Composable
+private fun RenameFavouriteDialog(
+    favourite: Favourite,
+    onDismiss: () -> Unit,
+    onConfirm: (String?) -> Unit,
+) {
+    var text by remember { mutableStateOf(favourite.customName ?: "") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename stop") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Custom name") },
+                    placeholder = { Text(favourite.name) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Leave blank to use the real stop name (${favourite.name}).",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(text) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 private fun SectionLabel(text: String) {
     Text(
         text.uppercase(),
@@ -241,10 +328,23 @@ private fun FavouriteCard(
     onOpen: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onRemove: () -> Unit,
+    onSetCustomName: (String?) -> Unit,
+    onToggleCollapsed: () -> Unit,
     handleModifier: Modifier,
     onStaleChanged: (Boolean) -> Unit,
+    showHandle: Boolean = true,
+    distanceLabel: String? = null,
     refreshKey: Int = 0,
 ) {
+    var showRename by remember { mutableStateOf(false) }
+    if (showRename) {
+        RenameFavouriteDialog(
+            favourite = favourite,
+            onDismiss = { showRename = false },
+            onConfirm = { name -> onSetCustomName(name); showRename = false },
+        )
+    }
+
     var deps by remember(favourite.code) {
         mutableStateOf(DeparturesCache.get(favourite.code)?.departures?.take(3))
     }
@@ -260,6 +360,7 @@ private fun FavouriteCard(
                     onStaleChanged(false)
                 }
                 .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
                     android.util.Log.e("tfi", "departures ${favourite.code} failed", it)
                     if (deps != null) onStaleChanged(true)
                     else initialError = "${it::class.simpleName}: ${it.message}"
@@ -277,25 +378,46 @@ private fun FavouriteCard(
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
-                    Text(favourite.name, style = MaterialTheme.typography.titleMedium)
-                    Text(favourite.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(favourite.displayName, style = MaterialTheme.typography.titleMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (favourite.customName.isNullOrBlank()) favourite.code
+                            else "${favourite.name} · ${favourite.code}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (distanceLabel != null) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "· $distanceLabel",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
                 }
-                Text(
-                    "⠿",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = handleModifier,
-                )
+                if (showHandle) {
+                    Text(
+                        "⠿",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = handleModifier,
+                    )
+                }
+                TextButton(onClick = onToggleCollapsed) { Text(if (favourite.collapsed) "Expand" else "Collapse") }
+                TextButton(onClick = { showRename = true }) { Text("Rename") }
                 TextButton(onClick = onRemove) { Text("Remove") }
             }
-            Spacer(Modifier.height(4.dp))
-            when {
-                deps == null && initialError != null ->
-                    Text("Could not load", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                deps == null -> Text("Loading…", style = MaterialTheme.typography.bodySmall)
-                deps!!.isEmpty() -> Text("No upcoming departures", style = MaterialTheme.typography.bodySmall)
-                else -> deps!!.forEach { d ->
-                    DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) })
+            if (!favourite.collapsed) {
+                Spacer(Modifier.height(4.dp))
+                when {
+                    deps == null && initialError != null ->
+                        Text("Could not load", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    deps == null -> Text("Loading…", style = MaterialTheme.typography.bodySmall)
+                    deps!!.isEmpty() -> Text("No upcoming departures", style = MaterialTheme.typography.bodySmall)
+                    else -> deps!!.forEach { d ->
+                        DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) })
+                    }
                 }
             }
         }

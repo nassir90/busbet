@@ -91,7 +91,7 @@ fun NotificationScreen(
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) permLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        BusNotificationService.start(context)
+        NotificationScheduler.reschedule(context)
     }
 
     Scaffold(
@@ -174,12 +174,17 @@ fun NotificationScreen(
             window = editTarget,
             draft = if (editTarget == null) createDraft else null,
             onSave = { w ->
-                scope.launch { store.save(w) }
-                BusNotificationService.refresh(context)
+                scope.launch {
+                    store.save(w)
+                    NotificationScheduler.reschedule(context)
+                }
                 showCreate = false; editTarget = null
             },
             onDelete = { id ->
-                scope.launch { store.delete(id) }
+                scope.launch {
+                    store.delete(id)
+                    NotificationScheduler.reschedule(context)
+                }
                 editTarget = null
             },
             onDismiss = { showCreate = false; editTarget = null },

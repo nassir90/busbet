@@ -9,7 +9,17 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-data class Favourite(val code: String, val name: String)
+data class Favourite(
+    val code: String,
+    val name: String,
+    val customName: String? = null,
+    val collapsed: Boolean = false,
+    val lat: Double? = null,
+    val lon: Double? = null,
+) {
+    /** Custom name if the user set one, otherwise the real stop name. */
+    val displayName: String get() = customName?.takeIf { it.isNotBlank() } ?: name
+}
 
 val Context.dataStore by preferencesDataStore(name = "tfi")
 private val KEY = stringPreferencesKey("favourites")
@@ -21,14 +31,24 @@ class FavouritesStore(private val context: Context) {
         prefs[KEY]?.let { gson.fromJson<List<Favourite>>(it, type) } ?: emptyList()
     }
 
-    suspend fun add(code: String, name: String) = update { current ->
-        current.filterNot { it.code == code } + Favourite(code, name)
+    suspend fun add(code: String, name: String, lat: Double? = null, lon: Double? = null) = update { current ->
+        current.filterNot { it.code == code } + Favourite(code, name, lat = lat, lon = lon)
+    }
+
+    /** Backfills coordinates for distance sorting once we learn them. */
+    suspend fun setCoords(code: String, lat: Double, lon: Double) = update { current ->
+        current.map { if (it.code == code) it.copy(lat = lat, lon = lon) else it }
     }
 
     suspend fun remove(code: String) = update { it.filterNot { f -> f.code == code } }
 
-    suspend fun rename(code: String, name: String) = update { current ->
-        current.map { if (it.code == code) it.copy(name = name) else it }
+    /** Sets a custom display name; pass null/blank to clear and fall back to the real stop name. */
+    suspend fun setCustomName(code: String, customName: String?) = update { current ->
+        current.map { if (it.code == code) it.copy(customName = customName?.takeIf { n -> n.isNotBlank() }) else it }
+    }
+
+    suspend fun setCollapsed(code: String, collapsed: Boolean) = update { current ->
+        current.map { if (it.code == code) it.copy(collapsed = collapsed) else it }
     }
 
     suspend fun reorder(codes: List<String>) = update { current ->

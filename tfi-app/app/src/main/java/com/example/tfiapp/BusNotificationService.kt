@@ -3,6 +3,7 @@ package com.example.tfiapp
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import android.text.SpannableString
 import android.text.Spanned
@@ -17,38 +18,55 @@ import java.time.LocalTime
 class BusNotificationService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var loopJob: Job? = null
+    private val postedIds = mutableSetOf<Int>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         ensureChannels(this)
-        startForeground(FOREGROUND_NOTIF_ID, buildForegroundNotification())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_REFRESH) {
-            scope.launch { checkAndNotify() }
-        } else {
-            scope.launch { runLoop() }
+        // Started via startForegroundService(): we must call startForeground() promptly.
+        // We promote now and let the loop demote/stop immediately if no window is active.
+        startForeground(FOREGROUND_NOTIF_ID, buildForegroundNotification())
+        if (loopJob?.isActive != true) {
+            loopJob = scope.launch { runLoop() }
         }
         return START_STICKY
     }
 
     private suspend fun runLoop() {
         while (true) {
-            checkAndNotify()
+            val active = checkAndNotify()
+            if (!active) {
+                // Hide the icon and stop running; an alarm will wake us at the next window.
+                stopForegroundCompat()
+                NotificationScheduler.reschedule(applicationContext)
+                stopSelf()
+                return
+            }
             delay(TICK_MS)
         }
     }
 
-    private suspend fun checkAndNotify() {
+    /** Posts/cancels per-window notifications and returns whether any window is currently active. */
+    private suspend fun checkAndNotify(): Boolean {
         val windows = NotificationWindowStore(this).flow.first()
         val today   = LocalDate.now().dayOfWeek.value
         val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
 
         val active = windows.filter { it.enabled && today in it.days && nowMins in it.startMinute..it.endMinute }
-        if (active.isEmpty()) return
+
+        // Drop notifications for windows that are no longer active.
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        val activeIds = active.map { it.id.hashCode() }.toSet()
+        (postedIds - activeIds).forEach { nm.cancel(it) }
+        postedIds.retainAll(activeIds)
+
+        if (active.isEmpty()) return false
 
         val theme = ThemeStore(this).flow.first()
         val accentColor = themeAccentColor(theme)
@@ -59,8 +77,20 @@ class BusNotificationService : Service() {
                 val matching = deps.filter { d ->
                     window.routes.isEmpty() || d.routeShortName in window.routes
                 }.take(2)
-                if (matching.isNotEmpty()) postBusNotification(window, matching, accentColor)
+                if (matching.isNotEmpty()) {
+                    postBusNotification(window, matching, accentColor)
+                    postedIds.add(window.id.hashCode())
+                }
             }
+        }
+        return true
+    }
+
+    private fun stopForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION") stopForeground(true)
         }
     }
 
@@ -139,7 +169,6 @@ class BusNotificationService : Service() {
     }
 
     companion object {
-        private const val ACTION_REFRESH      = "com.example.tfiapp.REFRESH"
         private const val FOREGROUND_NOTIF_ID = 1001
         private const val TICK_MS             = 2 * 60 * 1000L
         const val FG_CHANNEL_ID               = "bus_fg"
@@ -164,10 +193,6 @@ class BusNotificationService : Service() {
 
         fun start(ctx: Context) {
             ctx.startForegroundService(Intent(ctx, BusNotificationService::class.java))
-        }
-
-        fun refresh(ctx: Context) {
-            ctx.startForegroundService(Intent(ctx, BusNotificationService::class.java).setAction(ACTION_REFRESH))
         }
 
         fun stop(ctx: Context) {

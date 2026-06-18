@@ -1,10 +1,11 @@
 package com.example.tfiapp
 
-import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,7 +14,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
@@ -23,31 +23,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Draw edge-to-edge with transparent bars and light (white) icons so the
+        // app background fills the entire screen including the curved bottom corners.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         val initialStop = intent.getStringExtra("stopCode")
         setContent {
             val context = LocalContext.current
             val themeStore = remember { ThemeStore(context) }
             val theme by themeStore.flow.collectAsState(initial = AppTheme.DEFAULT)
             val colors = colorsFor(theme, isSystemInDarkTheme())
-
-            val view = LocalView.current
-            if (!view.isInEditMode) {
-                SideEffect {
-                    val window = (view.context as Activity).window
-                    @Suppress("DEPRECATION")
-                    window.statusBarColor = colors.primary.toArgb()
-                    WindowCompat.getInsetsController(window, view)
-                        .isAppearanceLightStatusBars = false
-                }
-            }
 
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -60,6 +52,7 @@ class MainActivity : ComponentActivity() {
 
 sealed class Screen {
     data object Home : Screen()
+    data object Settings : Screen()
     data class StopBoard(val code: String) : Screen()
     data class RouteView(val route: String, val direction: Int) : Screen()
     data class TripView(val tripId: String, val fromStopCode: String? = null) : Screen()
@@ -67,6 +60,8 @@ sealed class Screen {
 
 @Composable
 fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = null) {
+    val context = LocalContext.current
+    val settingsStore = remember { SettingsStore(context) }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val scope = rememberCoroutineScope()
 
@@ -94,15 +89,21 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
     // so back navigation reveals the still-alive parent screen.
     Box(Modifier.fillMaxSize()) {
         HomeScreen(
-            themeStore = themeStore,
-            currentTheme = currentTheme,
+            settingsStore = settingsStore,
             onOpenStop = { stack.add(Screen.StopBoard(it)) },
             onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
             onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
+            onOpenSettings = { stack.add(Screen.Settings) },
         )
         stack.forEachIndexed { i, layer ->
             when (layer) {
                 is Screen.Home -> Unit
+                is Screen.Settings -> SettingsScreen(
+                    themeStore = themeStore,
+                    settingsStore = settingsStore,
+                    currentTheme = currentTheme,
+                    onBack = { pop() },
+                )
                 is Screen.StopBoard -> StopScreen(
                     code = layer.code,
                     onBack = { pop() },

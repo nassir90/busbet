@@ -4,7 +4,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -12,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalTime
@@ -36,6 +40,7 @@ fun StopScreen(
     var stale by remember(code) { mutableStateOf(false) }
     var vehicles by remember(code) { mutableStateOf<List<VehiclePosition>>(emptyList()) }
     var refreshKey by remember(code) { mutableStateOf(0) }
+    var isRefreshing by remember(code) { mutableStateOf(false) }
 
     LaunchedEffect(code, refreshKey) {
         while (true) {
@@ -48,13 +53,18 @@ fun StopScreen(
                     lastFetched = LocalTime.now()
                 }
                 .onFailure {
+                    if (it is CancellationException) throw it
                     android.util.Log.e("tfi", "stop $code fetch failed", it)
                     if (data != null) stale = true
                     else initialError = it.message ?: "error"
                 }
             runCatching { Api.service.vehicles(code) }
                 .onSuccess { vehicles = it }
-                .onFailure { android.util.Log.w("tfi", "vehicles $code fetch failed", it) }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    android.util.Log.w("tfi", "vehicles $code fetch failed", it)
+                }
+            isRefreshing = false
             delay(30_000)
         }
     }
@@ -73,7 +83,7 @@ fun StopScreen(
                         onClick = {
                             scope.launch {
                                 if (isFavourite) favStore.remove(code)
-                                else favStore.add(code, stop?.stopName ?: code)
+                                else favStore.add(code, stop?.stopName ?: code, stop?.stopLat, stop?.stopLon)
                             }
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
@@ -96,10 +106,6 @@ fun StopScreen(
             },
             actions = {
                 if (stale) StaleBadge()
-                TextButton(
-                    onClick = { refreshKey++ },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("↻") }
                 TextButton(
                     onClick = { onAddNotification(code, stop?.stopName ?: code) },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
@@ -130,14 +136,20 @@ fun StopScreen(
             }
             HorizontalDivider()
 
-            when {
-                initialError != null && data == null -> EmptyMessage("Could not load departures.\n$initialError", Modifier.weight(1f))
-                data == null -> EmptyMessage("Loading…", Modifier.weight(1f))
-                data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.", Modifier.weight(1f))
-                else -> LazyColumn(Modifier.weight(1f)) {
-                    items(data!!.departures) { d ->
-                        DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, code) })
-                        HorizontalDivider()
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { isRefreshing = true; refreshKey++ },
+                modifier = Modifier.weight(1f),
+            ) {
+                when {
+                    initialError != null && data == null -> EmptyMessage("Could not load departures.\n$initialError")
+                    data == null -> EmptyMessage("Loading…")
+                    data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.")
+                    else -> LazyColumn(Modifier.fillMaxSize()) {
+                        items(data!!.departures) { d ->
+                            DepartureRow(d, onOpenRoute = { onOpenTrip(d.tripId, code) })
+                            HorizontalDivider()
+                        }
                     }
                 }
             }
@@ -147,7 +159,13 @@ fun StopScreen(
 
 @Composable
 private fun EmptyMessage(text: String, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    // Scrollable so pull-to-refresh registers even when there's no list content.
+    Box(
+        modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
