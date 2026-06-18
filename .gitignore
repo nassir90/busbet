@@ -26,4 +26,4 @@ local.properties
 *.iml
 *.iws
 *.ipr
-
+*.hprof
