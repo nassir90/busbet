@@ -437,7 +437,7 @@ private fun FavouriteCard(
                                 .let { z -> z.hour * 60 + z.minute }
                         } ?: java.time.LocalTime.now().let { it.hour * 60 + it.minute }
                         deps!!.forEach { d ->
-                            DepartureRow(d, nowMins = refNowMins, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) })
+                            DepartureRow(d, nowMins = refNowMins, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) }, onReport = {})
                         }
                     }
                 }

@@ -29,6 +29,7 @@ fun StopScreen(
     onBack: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onAddNotification: (stopCode: String, stopName: String) -> Unit = { _, _ -> },
+    onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
@@ -165,7 +166,12 @@ fun StopScreen(
                         } ?: LocalTime.now().let { it.hour * 60 + it.minute }
                         LazyColumn(Modifier.fillMaxSize()) {
                             items(data!!.departures) { d ->
-                                DepartureRow(d, nowMins = refNowMins, onOpenRoute = { onOpenTrip(d.tripId, code) })
+                                DepartureRow(
+                                    d,
+                                    nowMins = refNowMins,
+                                    onOpenRoute = { onOpenTrip(d.tripId, code) },
+                                    onReport = { onReport(d, code, data?.stop?.stopName ?: code) },
+                                )
                                 HorizontalDivider()
                             }
                         }
@@ -194,6 +200,7 @@ fun DepartureRow(
     d: Departure,
     nowMins: Int = LocalTime.now().let { it.hour * 60 + it.minute },
     onOpenRoute: () -> Unit,
+    onReport: () -> Unit = {},
 ) {
     val effective = d.estimatedDeparture ?: d.scheduledDeparture
     val effectiveMins = toMinutes(effective)
@@ -221,7 +228,10 @@ fun DepartureRow(
             Text(d.tripHeadsign, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             Text(buildDriftLabel(d), style = MaterialTheme.typography.bodySmall, color = driftColor(d))
         }
-        Column(horizontalAlignment = Alignment.End) {
+        Column(
+            horizontalAlignment = Alignment.End,
+            modifier = Modifier.clickable(onClick = onReport),
+        ) {
             Text(dueLabel(due), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
             Text(
                 if (d.realtime) "Live" else "Sched",

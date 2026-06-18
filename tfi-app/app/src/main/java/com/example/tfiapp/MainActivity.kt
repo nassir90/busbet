@@ -58,6 +58,14 @@ sealed class Screen {
     data class StopBoard(val code: String) : Screen()
     data class RouteView(val route: String, val direction: Int) : Screen()
     data class TripView(val tripId: String, val fromStopCode: String? = null) : Screen()
+    data class Report(
+        val routeShortName: String,
+        val stopCode: String,
+        val stopName: String,
+        val tripId: String,
+        val scheduledDeparture: String,
+        val estimatedDeparture: String?,
+    ) : Screen()
 }
 
 @Composable
@@ -125,6 +133,18 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
                         notifPrefill = Pair(stopCode, stopName)
                         scope.launch { pagerState.animateScrollToPage(1) }
                     },
+                    onReport = { d, stopCode, stopName ->
+                        stack.add(
+                            Screen.Report(
+                                routeShortName = d.routeShortName,
+                                stopCode = stopCode,
+                                stopName = stopName,
+                                tripId = d.tripId,
+                                scheduledDeparture = d.scheduledDeparture,
+                                estimatedDeparture = d.estimatedDeparture,
+                            )
+                        )
+                    },
                 )
                 is Screen.RouteView -> RouteScreen(
                     route = layer.route,
@@ -140,6 +160,15 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
                     fromStopCode = layer.fromStopCode,
                     onBack = { pop() },
                     onOpenStop = { stack.add(Screen.StopBoard(it)) },
+                )
+                is Screen.Report -> ReportScreen(
+                    routeShortName = layer.routeShortName,
+                    stopCode = layer.stopCode,
+                    stopName = layer.stopName,
+                    tripId = layer.tripId,
+                    scheduledDeparture = layer.scheduledDeparture,
+                    estimatedDeparture = layer.estimatedDeparture,
+                    onBack = { pop() },
                 )
             }
         }

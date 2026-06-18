@@ -5,7 +5,9 @@ import com.google.gson.annotations.SerializedName
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
@@ -113,18 +115,39 @@ interface GtfsApi {
     suspend fun stopRoutes(@Path("stopCode") stopCode: String): List<String>
 }
 
-object Api {
-    val service: GtfsApi by lazy {
-        val client = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build()
+/** Stateful write API (tfi-tenant-api) — separate host from the read-only GTFS proxy. */
+interface TenantApi {
+    @POST("report")
+    suspend fun report(@Body body: ArrivalReport)
+}
 
+data class ArrivalReport(
+    @SerializedName("trip_id") val tripId: String,
+    @SerializedName("stop_code") val stopCode: String,
+    @SerializedName("route_short_name") val routeShortName: String,
+    @SerializedName("service_date") val serviceDate: String,   // "YYYYMMDD" local
+    val kind: String,                                          // "arrived" | "cancelled"
+    @SerializedName("actual_time") val actualTime: String?,    // "HH:MM" local, null when cancelled
+    @SerializedName("reported_at") val reportedAt: Long,       // epoch seconds
+)
+
+object Api {
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    private fun <T> build(baseUrl: String, api: Class<T>): T =
         Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL)
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(GtfsApi::class.java)
-    }
+            .create(api)
+
+    /** Read-only GTFS proxy (gtfsr-stop-times). */
+    val service: GtfsApi by lazy { build(BuildConfig.API_BASE_URL, GtfsApi::class.java) }
+
+    /** Stateful write API (tfi-tenant-api). */
+    val tenant: TenantApi by lazy { build(BuildConfig.TENANT_API_BASE_URL, TenantApi::class.java) }
 }
