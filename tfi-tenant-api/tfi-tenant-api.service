@@ -6,7 +6,10 @@ After=network.target
 Type=simple
 WorkingDirectory=/home/lab/Projects/busbet/tfi-tenant-api
 ExecStart=npx tsx server.ts
+EnvironmentFile=/home/lab/Projects/ports.env
+Environment=GTFSR_BASE_URL=http://127.0.0.1:8110
 Restart=on-failure
+RestartSec=5
 Slice=lab.slice
 
 [Install]
