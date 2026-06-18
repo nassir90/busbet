@@ -23,7 +23,7 @@ function loadEnv(path: string) {
 loadEnv('.env');
 
 const PORT        = parseInt(process.env.TFI_TENANT_API_PORT ?? '8120');
-const REPORTS_DB  = process.env.REPORTS_DB ?? '/home/lab/Projects/busbet/tfi-tenant-api/data/reports.db';
+const REPORTS_DB  = process.env.REPORTS_DB ?? './data/reports.db';
 // Upstream read-only GTFS API — this service is a pure consumer of it for enrichment.
 const GTFSR_BASE  = (process.env.GTFSR_BASE_URL ?? 'http://127.0.0.1:8110').replace(/\/$/, '');
 
@@ -78,6 +78,12 @@ function serviceDateStartSec(yyyymmdd: string): number {
 function hmToMin(t: string): number {
 	const [h, m] = t.split(':').map(Number);
 	return h * 60 + m;
+}
+
+function parseReportId(path: string): number | null {
+	const match = /^\/reports\/(\d+)\/undo$/.exec(path);
+	if (!match) return null;
+	return Number(match[1]);
 }
 
 /**
@@ -143,14 +149,22 @@ const server = http.createServer(async (req, res) => {
 			catch { return respond(res, 400, { message: 'invalid JSON' }); }
 			const built = await buildReport(body);
 			if ('error' in built) return respond(res, 400, { message: built.error });
-			await reports.insert(built);
-			return respond(res, 201, { ok: true, ...built });
+			const id = await reports.insert(built);
+			return respond(res, 201, { ok: true, id, ...built });
+		}
+
+		const undoReportId = req.method === 'POST' ? parseReportId(path) : null;
+		if (undoReportId !== null) {
+			const result = await reports.undo(undoReportId);
+			if (!result.found) return respond(res, 404, { message: 'report not found' });
+			return respond(res, 200, { ok: true, id: undoReportId, undone: result.undone });
 		}
 
 		// Inspection: recent reports, optionally filtered by ?date=YYYYMMDD
 		if (req.method === 'GET' && path === '/reports') {
 			const date = url.searchParams.get('date');
-			const rows = await reports.list(date && /^\d{8}$/.test(date) ? date : null);
+			const includeUndone = url.searchParams.get('include_undone') === '1';
+			const rows = await reports.list(date && /^\d{8}$/.test(date) ? date : null, 200, includeUndone);
 			return respond(res, 200, rows);
 		}
 
@@ -161,7 +175,7 @@ const server = http.createServer(async (req, res) => {
 	}
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '0.0.0.0', () => {
 	console.log(`tfi-tenant-api listening on port ${PORT}`);
 	console.log(`  reports db: ${REPORTS_DB}`);
 	console.log(`  gtfsr:      ${GTFSR_BASE}`);

@@ -22,19 +22,25 @@ sequence, and the realtime feed's predicted delay at report time.
   `kind` is `"arrived"` or `"cancelled"`; `actual_time` (HH:MM) is required for
   `arrived`, omitted/null for `cancelled`. The server derives `stop_sequence`,
   `scheduled_departure`, `actual_epoch`, `delay_seconds`, and stamps
-  `feed_delay_seconds` (the feed's prediction) before storing.
-- `GET /reports?date=YYYYMMDD` — recent reports (inspection).
+  `feed_delay_seconds` (the feed's prediction) before storing. Returns the stored
+  report's `id`, which can be used for undo.
+- `POST /reports/:id/undo` — logically undo a report. The original report row is
+  retained, and an undo marker is stored separately.
+- `GET /reports?date=YYYYMMDD` — recent active reports (inspection). Add
+  `include_undone=1` to include undone reports with `undone`/`undone_at` fields.
 - `GET /health`
 
 ## Storage
 
 Append-only SQLite at `REPORTS_DB` (default `./data/reports.db`). Separate from the
-static GTFS db so reloads never touch user data. See `src/reports.ts` for the schema.
+static GTFS db so reloads never touch user data. Undo is represented by a
+`report_undos` row rather than deleting or mutating the original observation. See
+`src/reports.ts` for the schema.
 
 ## Config (env / .env)
 
 - `TFI_TENANT_API_PORT` (default `8120`)
-- `REPORTS_DB` (default `/home/lab/Projects/busbet/tfi-tenant-api/data/reports.db`)
+- `REPORTS_DB` (default `./data/reports.db`)
 - `GTFSR_BASE_URL` (default `http://127.0.0.1:8110`)
 
 ## Run

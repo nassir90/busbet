@@ -23,8 +23,8 @@ export function createReportsStore(dbPath: string) {
 
 	function ensure(): Promise<void> {
 		if (!ready) {
-			ready = db.execute(`
-				CREATE TABLE IF NOT EXISTS reports (
+			ready = db.batch([
+				`CREATE TABLE IF NOT EXISTS reports (
 					id                  INTEGER PRIMARY KEY AUTOINCREMENT,
 					kind                TEXT    NOT NULL,
 					trip_id             TEXT    NOT NULL,
@@ -38,16 +38,22 @@ export function createReportsStore(dbPath: string) {
 					delay_seconds       INTEGER,
 					feed_delay_seconds  INTEGER,
 					reported_at         INTEGER NOT NULL
-				)
-			`).then(() => undefined);
+				)`,
+				`CREATE TABLE IF NOT EXISTS report_undos (
+					report_id           INTEGER PRIMARY KEY,
+					undone_at           INTEGER NOT NULL,
+					reason              TEXT,
+					FOREIGN KEY(report_id) REFERENCES reports(id)
+				)`,
+			], 'write').then(() => undefined);
 		}
 		return ready;
 	}
 
 	return {
-		async insert(r: ReportInput): Promise<void> {
+		async insert(r: ReportInput): Promise<number> {
 			await ensure();
-			await db.execute({
+			const result = await db.execute({
 				sql: `INSERT INTO reports
 				      (kind, trip_id, route_short_name, stop_code, stop_sequence, service_date,
 				       scheduled_departure, actual_time, actual_epoch, delay_seconds, feed_delay_seconds, reported_at)
@@ -57,13 +63,38 @@ export function createReportsStore(dbPath: string) {
 					r.scheduled_departure, r.actual_time, r.actual_epoch, r.delay_seconds, r.feed_delay_seconds, r.reported_at,
 				],
 			});
+			return Number(result.lastInsertRowid);
 		},
 
-		async list(serviceDate: string | null, limit = 200) {
+		async undo(id: number, undoneAt = Math.floor(Date.now() / 1000), reason: string | null = null) {
 			await ensure();
-			const r = serviceDate
-				? await db.execute({ sql: `SELECT * FROM reports WHERE service_date = ? ORDER BY id DESC LIMIT ?`, args: [serviceDate, limit] })
-				: await db.execute({ sql: `SELECT * FROM reports ORDER BY id DESC LIMIT ?`, args: [limit] });
+			const existing = await db.execute({ sql: `SELECT id FROM reports WHERE id = ?`, args: [id] });
+			if (existing.rows.length === 0) return { found: false, undone: false };
+
+			const result = await db.execute({
+				sql: `INSERT OR IGNORE INTO report_undos (report_id, undone_at, reason) VALUES (?, ?, ?)`,
+				args: [id, undoneAt, reason],
+			});
+			return { found: true, undone: result.rowsAffected > 0 };
+		},
+
+		async list(serviceDate: string | null, limit = 200, includeUndone = false) {
+			await ensure();
+			const where = [
+				serviceDate ? 'r.service_date = ?' : null,
+				includeUndone ? null : 'u.report_id IS NULL',
+			].filter(Boolean).join(' AND ');
+			const args: (string | number)[] = serviceDate ? [serviceDate] : [];
+			args.push(limit);
+			const r = await db.execute({
+				sql: `SELECT r.*, u.undone_at, u.reason AS undo_reason, u.report_id IS NOT NULL AS undone
+				      FROM reports r
+				      LEFT JOIN report_undos u ON u.report_id = r.id
+				      ${where ? `WHERE ${where}` : ''}
+				      ORDER BY r.id DESC
+				      LIMIT ?`,
+				args,
+			});
 			return r.rows;
 		},
 	};
