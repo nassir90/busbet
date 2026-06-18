@@ -71,10 +71,10 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 			return [...new Set([...regular, ...added])];
 		},
 
-		async getScheduledDepartures(stopId, activeServiceIds, windowMinutes = 105, hourOffset = 0) {
+		async getScheduledDepartures(stopId, activeServiceIds, windowMinutes = 105, hourOffset = 0, atDate?: Date) {
 			if (activeServiceIds.length === 0) return [];
 
-			const now = new Date();
+			const now = atDate ?? new Date();
 			const currentMins = now.getHours() * 60 + now.getMinutes() + hourOffset * 60;
 			const endMins = currentMins + windowMinutes;
 

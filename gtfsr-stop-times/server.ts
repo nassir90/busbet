@@ -2,8 +2,11 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createSqliteBackend } from './src/sqlite.js';
 import { getDepartures } from './src/departures.js';
-import { fetchFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
+import { fetchFeed, selectFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
 import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
+import { parseTimeParam, parseDuration, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
+
+const MAX_RANGE_STEPS = 1000;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -35,10 +38,20 @@ const storage = createSqliteBackend(DB_PATH);
 // Helpers
 // ---------------------------------------------------------------------------
 
-function respond(res: http.ServerResponse, status: number, body: unknown) {
+function respond(res: http.ServerResponse, status: number, body: unknown, headers?: Record<string, string>) {
 	const payload = JSON.stringify(body);
-	res.writeHead(status, { 'Content-Type': 'application/json' });
+	res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
 	res.end(payload);
+}
+
+/** Builds a list of sample instants from start..end inclusive, stepping by `step` seconds. */
+function rangeSteps(start: number, end: number, step: number): number[] | null {
+	if (!Number.isFinite(start) || !Number.isFinite(end) || !(step > 0) || end < start) return null;
+	const count = Math.floor((end - start) / step) + 1;
+	if (count > MAX_RANGE_STEPS) return null;
+	const out: number[] = [];
+	for (let t = start; t <= end + 1e-9; t += step) out.push(Math.floor(t));
+	return out;
 }
 
 function buildTripUpdatesJson(feed: Awaited<ReturnType<typeof fetchFeed>>) {
@@ -61,6 +74,23 @@ function buildTripUpdatesJson(feed: Awaited<ReturnType<typeof fetchFeed>>) {
 		};
 	}
 	return out;
+}
+
+/** Vehicle positions for trips departing `stopCode` within `windowMins`, at the given instant. */
+async function vehiclesAt(stopCode: string, atSec: number | undefined, windowMins: number, lookbackSec: number) {
+	const deps = await getDepartures(stopCode, storage, FEEDS_DIR, atSec, lookbackSec);
+	if (!deps) return null;
+	const ref = atSec != null ? new Date(atSec * 1000) : new Date();
+	const nowMins = ref.getHours() * 60 + ref.getMinutes();
+	const tripMap = new Map(
+		deps.departures
+			.filter((d) => {
+				const [h, m] = (d.estimated_departure ?? d.scheduled_departure).split(':').map(Number);
+				return (h * 60 + m) - nowMins <= windowMins;
+			})
+			.map((d) => [d.trip_id, { route: d.route_short_name, delay: d.delay_seconds }])
+	);
+	return getVehiclesForTrips(tripMap, VEHICLES_DIR, atSec, lookbackSec);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,9 +120,32 @@ const server = http.createServer(async (req, res) => {
 			return respond(res, 200, stop);
 		}
 
+		// /departures/{code}/range?start=&end=&step= — schedule + realtime overlay sampled over time
+		const departuresRange = path.match(/^\/departures\/([^/]+)\/range$/);
+		if (departuresRange) {
+			const start = parseTimeParam(url.searchParams.get('start'));
+			const end = parseTimeParam(url.searchParams.get('end'));
+			const step = parseDuration(url.searchParams.get('step'), 60);
+			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
+			if (start == null || end == null) return respond(res, 400, { message: 'start and end required' });
+			const steps = rangeSteps(start, end, step);
+			if (!steps) return respond(res, 400, { message: `invalid range or too many steps (max ${MAX_RANGE_STEPS})` });
+			let stop = null;
+			const series = [];
+			for (const t of steps) {
+				const r = await getDepartures(departuresRange[1], storage, FEEDS_DIR, t, lookback);
+				if (!r) return respond(res, 404, { message: `Stop ${departuresRange[1]} not found` });
+				stop = r.stop;
+				series.push({ at: t, feed_timestamp: r.feed_timestamp, stale: r.stale, departures: r.departures });
+			}
+			return respond(res, 200, { stop, series });
+		}
+
 		const departures = path.match(/^\/departures\/([^/]+)$/);
 		if (departures) {
-			const result = await getDepartures(departures[1], storage, FEEDS_DIR);
+			const at = parseTimeParam(url.searchParams.get('time'));
+			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
+			const result = await getDepartures(departures[1], storage, FEEDS_DIR, at ?? undefined, lookback);
 			if (!result) return respond(res, 404, { message: `Stop ${departures[1]} not found` });
 			return respond(res, 200, result);
 		}
@@ -123,34 +176,51 @@ const server = http.createServer(async (req, res) => {
 		if (tripDetail) {
 			const detail = await storage.getTripDetail(tripDetail[1]);
 			if (!detail) return respond(res, 404, { message: 'Trip not found' });
-			await applyRealtimeDelaysToTrip(detail, FEEDS_DIR);
-			return respond(res, 200, detail);
+			const at = parseTimeParam(url.searchParams.get('time'));
+			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
+			const { feed, feedTimestamp, stale } = selectFeed(FEEDS_DIR, at ?? undefined, at != null ? lookback : Infinity);
+			applyRealtimeDelaysToTrip(detail, feed);
+			return respond(res, 200, { ...detail, feed_timestamp: feedTimestamp, stale });
 		}
 
 		if (path === '/trip-updates') {
-			const feed = await fetchFeed(FEEDS_DIR);
+			const feed = fetchFeed(FEEDS_DIR);
 			return respond(res, 200, buildTripUpdatesJson(feed));
+		}
+
+		// /vehicles/{code}/range?start=&end=&step= — vehicle positions sampled over time (track replay)
+		const vehiclesRange = path.match(/^\/vehicles\/([^/]+)\/range$/);
+		if (vehiclesRange) {
+			const start = parseTimeParam(url.searchParams.get('start'));
+			const end = parseTimeParam(url.searchParams.get('end'));
+			const step = parseDuration(url.searchParams.get('step'), 30);
+			const windowMins = parseInt(url.searchParams.get('window') ?? '10');
+			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
+			if (start == null || end == null) return respond(res, 400, { message: 'start and end required' });
+			const steps = rangeSteps(start, end, step);
+			if (!steps) return respond(res, 400, { message: `invalid range or too many steps (max ${MAX_RANGE_STEPS})` });
+			const series = [];
+			for (const t of steps) {
+				const v = await vehiclesAt(vehiclesRange[1], t, windowMins, lookback);
+				if (!v) return respond(res, 404, { message: `Stop ${vehiclesRange[1]} not found` });
+				series.push({ at: t, feed_timestamp: v.feedTimestamp, stale: v.stale, positions: v.positions });
+			}
+			return respond(res, 200, { series });
 		}
 
 		// /vehicles/{stop_code} — active vehicle positions for trips serving this stop,
 		// with server-derived bearings (NTA feed bearing field is always 0).
 		const vehicles = path.match(/^\/vehicles\/([^/]+)$/);
 		if (vehicles) {
-			const stopCode = vehicles[1];
+			const at = parseTimeParam(url.searchParams.get('time'));
 			const windowMins = parseInt(url.searchParams.get('window') ?? '10');
-			const deps = await getDepartures(stopCode, storage, FEEDS_DIR);
-			if (!deps) return respond(res, 404, { message: `Stop ${stopCode} not found` });
-			const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
-			const tripMap = new Map(
-				deps.departures
-					.filter((d) => {
-						const [h, m] = (d.estimated_departure ?? d.scheduled_departure).split(':').map(Number);
-						return (h * 60 + m) - nowMins <= windowMins;
-					})
-					.map((d) => [d.trip_id, { route: d.route_short_name, delay: d.delay_seconds }])
-			);
-			const positions = await getVehiclesForTrips(tripMap, VEHICLES_DIR);
-			return respond(res, 200, positions);
+			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
+			const v = await vehiclesAt(vehicles[1], at ?? undefined, windowMins, lookback);
+			if (!v) return respond(res, 404, { message: `Stop ${vehicles[1]} not found` });
+			return respond(res, 200, v.positions, {
+				'X-Feed-Timestamp': String(v.feedTimestamp ?? ''),
+				'X-Stale': String(v.stale),
+			});
 		}
 
 		respond(res, 404, { message: 'Not found' });

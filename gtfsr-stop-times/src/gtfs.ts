@@ -1,36 +1,32 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { gunzipSync } from 'node:zlib';
-import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import type { transit_realtime } from 'gtfs-realtime-bindings';
 import type { Departure, TripDetail } from './types.js';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { FeedMessage } = (GtfsRealtimeBindings as any).transit_realtime as typeof transit_realtime;
+import { selectAt, decodeFeed, DEFAULT_LOOKBACK_S } from './snapshots.js';
 
 const DEFAULT_FEEDS_DIR = process.env.GTFS_FEEDS_DIR ?? '/home/lab/Projects/busbet/gtfsr-collector/data/feeds';
-const CACHE_TTL_MS = 15_000;
 
-let cache: { feed: transit_realtime.FeedMessage; fetchedAt: number } | null = null;
+export interface FeedSelection {
+	feed: transit_realtime.FeedMessage | null;  // null when stale / no snapshot at-or-before the instant
+	feedTimestamp: number | null;               // header.timestamp (epoch s) of the chosen snapshot
+	stale: boolean;
+}
 
-export async function fetchFeed(feedsDir?: string): Promise<transit_realtime.FeedMessage | null> {
+/**
+ * Prometheus-style instant selection of a trip-updates snapshot.
+ * @param atSec      target instant (epoch s); defaults to now
+ * @param lookbackSec staleness window; pass Infinity for "latest, regardless of age"
+ */
+export function selectFeed(feedsDir: string | undefined, atSec?: number, lookbackSec = DEFAULT_LOOKBACK_S): FeedSelection {
 	const dir = feedsDir ?? DEFAULT_FEEDS_DIR;
-	const now = Date.now();
-	if (cache && now - cache.fetchedAt < CACHE_TTL_MS) return cache.feed;
-	try {
-		const files = readdirSync(dir).filter((f) => f.endsWith('.pb.gz')).sort();
-		if (!files.length) {
-			console.warn('[gtfs] no feed files in', dir);
-			return cache?.feed ?? null;
-		}
-		const raw = gunzipSync(readFileSync(join(dir, files[files.length - 1])));
-		const feed = FeedMessage.decode(new Uint8Array(raw));
-		cache = { feed, fetchedAt: now };
-		return feed;
-	} catch (err) {
-		console.warn('[gtfs] feed read error:', err);
-		return cache?.feed ?? null;
-	}
+	const at = atSec ?? Math.floor(Date.now() / 1000);
+	const sel = selectAt(dir, at, lookbackSec);
+	if (!sel.cur) return { feed: null, feedTimestamp: null, stale: true };
+	if (sel.stale) return { feed: null, feedTimestamp: sel.cur.ts, stale: true };
+	return { feed: decodeFeed(dir, sel.cur.file), feedTimestamp: sel.cur.ts, stale: false };
+}
+
+/** Latest available trip-updates feed (no staleness limit). */
+export function fetchFeed(feedsDir?: string): transit_realtime.FeedMessage | null {
+	return selectFeed(feedsDir, undefined, Infinity).feed;
 }
 
 type StopUpdate = { stopSequence: number; delay: number };
@@ -60,8 +56,7 @@ function addSeconds(timeHHMM: string, seconds: number): string {
 	return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
 }
 
-export async function applyRealtimeDelaysToTrip(detail: TripDetail, feedsDir?: string): Promise<TripDetail> {
-	const feed = await fetchFeed(feedsDir);
+export function applyRealtimeDelaysToTrip(detail: TripDetail, feed: transit_realtime.FeedMessage | null): TripDetail {
 	if (!feed) return detail;
 	const tripUpdates = buildTripUpdates(feed);
 	const updates = tripUpdates.get(detail.trip_id);
@@ -83,10 +78,8 @@ export async function applyRealtimeDelaysToTrip(detail: TripDetail, feedsDir?: s
 	return detail;
 }
 
-export async function applyRealtimeDelays(departures: Departure[], feedsDir?: string): Promise<Departure[]> {
-	if (departures.length === 0) return departures;
-	const feed = await fetchFeed(feedsDir);
-	if (!feed) return departures;
+export function applyRealtimeDelays(departures: Departure[], feed: transit_realtime.FeedMessage | null): Departure[] {
+	if (departures.length === 0 || !feed) return departures;
 	const tripUpdates = buildTripUpdates(feed);
 	for (const dep of departures) {
 		const updates = tripUpdates.get(dep.trip_id);
