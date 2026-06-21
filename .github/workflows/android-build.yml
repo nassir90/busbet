@@ -1,0 +1,55 @@
+name: Android Build
+
+on:
+  push:
+    branches: ["**"]        # build on every branch push
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:        # allow manual runs from the Actions tab
+
+# Cancel an in-progress run if you push again to the same branch/PR
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Assemble debug APK
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: tfi-app   # the project lives in a subdir, not repo root
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle              # caches ~/.gradle keyed off gradle files
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        # installs cmdline-tools + accepts licenses. compileSdk/buildTools
+        # (34) are resolved by Gradle from app/build.gradle automatically.
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        # No JAVA_HOME override needed: setup-java sets JAVA_HOME on the runner.
+        # No signing config required for the debug variant (debug keystore).
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-debug-apk
+          path: tfi-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
