@@ -38,6 +38,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val locationAware by settingsStore.locationAware.collectAsState(initial = false)
     val hideFarStops by settingsStore.hideFarStops.collectAsState(initial = false)
+    val busDisplayThresholdMin by settingsStore.busDisplayThresholdMin.collectAsState(initial = DEFAULT_BUS_DISPLAY_THRESHOLD_MIN)
 
     val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
     val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
@@ -165,6 +166,35 @@ fun SettingsScreen(
                     enabled = locationAware,
                     onCheckedChange = { enabled -> scope.launch { settingsStore.setHideFarStops(enabled) } },
                 )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            // ── Map ──────────────────────────────────────────────────────────
+            SectionHeader("Map")
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text("Bus display threshold", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Only show a bus on the map once it's due within this many minutes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Slider(
+                        value = busDisplayThresholdMin.toFloat(),
+                        onValueChange = { scope.launch { settingsStore.setBusDisplayThresholdMin(it.toInt()) } },
+                        valueRange = 5f..120f,
+                        steps = 22,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "$busDisplayThresholdMin min",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.width(56.dp),
+                    )
+                }
             }
             Spacer(Modifier.height(24.dp))
         }

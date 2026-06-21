@@ -139,6 +139,7 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
                 is Screen.StopBoard -> StopScreen(
                     code = layer.code,
                     timeController = timeController,
+                    settingsStore = settingsStore,
                     onBack = { pop() },
                     onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
                     onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
