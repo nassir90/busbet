@@ -50,9 +50,10 @@ class StopWidgetConfigActivity : ComponentActivity() {
         }
 
         setContent {
-            val themeStore = remember { ThemeStore(this) }
-            val theme by themeStore.flow.collectAsState(initial = AppTheme.DEFAULT)
-            val colors = colorsFor(theme, isSystemInDarkTheme())
+            val paletteStore = remember { PaletteStore(this) }
+            val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
+            val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
+            val colors = buildColorScheme(resolvePalette(selectedId, customPalettes), isSystemInDarkTheme())
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     PickerScreen(

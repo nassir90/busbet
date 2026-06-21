@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -108,11 +110,14 @@ fun NotificationScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f))
+                            .height(PILL_HEIGHT)
                             .padding(horizontal = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         listOf(CalendarViewMode.WEEK to "Week", CalendarViewMode.DAY to "Day").forEach { (mode, label) ->
                             TextButton(
                                 onClick = { viewMode = mode },
+                                modifier = Modifier.fillMaxHeight(),
                                 colors = ButtonDefaults.textButtonColors(
                                     contentColor = if (viewMode == mode) MaterialTheme.colorScheme.onPrimary
                                                    else MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.55f),
@@ -128,7 +133,7 @@ fun NotificationScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreate = true }) {
-                Text("+", style = MaterialTheme.typography.titleLarge)
+                Icon(Icons.Filled.Add, contentDescription = "Add notification")
             }
         },
     ) { padding ->

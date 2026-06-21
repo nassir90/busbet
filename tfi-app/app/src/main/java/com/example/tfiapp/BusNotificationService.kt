@@ -68,8 +68,9 @@ class BusNotificationService : Service() {
 
         if (active.isEmpty()) return false
 
-        val theme = ThemeStore(this).flow.first()
-        val accentColor = themeAccentColor(theme)
+        val isDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val accentColor = PaletteStore(this).current().faceFor(isDark).primary
 
         active.forEach { window ->
             runCatching {
@@ -173,12 +174,6 @@ class BusNotificationService : Service() {
         private const val TICK_MS             = 2 * 60 * 1000L
         const val FG_CHANNEL_ID               = "bus_fg"
         const val BUS_CHANNEL_ID              = "bus_alerts"
-
-        fun themeAccentColor(theme: AppTheme): Int = when (theme) {
-            AppTheme.TFI     -> 0xFF003B8C.toInt()
-            AppTheme.GREEN   -> 0xFF3D5663.toInt()
-            AppTheme.DEFAULT -> 0xFF6750A4.toInt()
-        }
 
         fun ensureChannels(ctx: Context) {
             val nm = ctx.getSystemService(NOTIFICATION_SERVICE) as NotificationManager

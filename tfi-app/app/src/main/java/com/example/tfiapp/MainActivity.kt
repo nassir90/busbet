@@ -39,13 +39,14 @@ class MainActivity : ComponentActivity() {
         val initialStop = intent.getStringExtra("stopCode")
         setContent {
             val context = LocalContext.current
-            val themeStore = remember { ThemeStore(context) }
-            val theme by themeStore.flow.collectAsState(initial = AppTheme.DEFAULT)
-            val colors = colorsFor(theme, isSystemInDarkTheme())
+            val paletteStore = remember { PaletteStore(context) }
+            val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
+            val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
+            val colors = buildColorScheme(resolvePalette(selectedId, customPalettes), isSystemInDarkTheme())
 
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    App(themeStore = themeStore, currentTheme = theme, initialStop = initialStop)
+                    App(paletteStore = paletteStore, initialStop = initialStop)
                 }
             }
         }
@@ -69,7 +70,7 @@ sealed class Screen {
 }
 
 @Composable
-fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = null) {
+fun App(paletteStore: PaletteStore, initialStop: String? = null) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
     val timeController = remember { TimeController() }
@@ -113,15 +114,26 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
             onOpenStop = { stack.add(Screen.StopBoard(it)) },
             onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
             onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
+            onReport = { d, stopCode, stopName ->
+                stack.add(
+                    Screen.Report(
+                        routeShortName = d.routeShortName,
+                        stopCode = stopCode,
+                        stopName = stopName,
+                        tripId = d.tripId,
+                        scheduledDeparture = d.scheduledDeparture,
+                        estimatedDeparture = d.estimatedDeparture,
+                    )
+                )
+            },
             onOpenSettings = { stack.add(Screen.Settings) },
         )
         stack.forEachIndexed { i, layer ->
             when (layer) {
                 is Screen.Home -> Unit
                 is Screen.Settings -> SettingsScreen(
-                    themeStore = themeStore,
+                    paletteStore = paletteStore,
                     settingsStore = settingsStore,
-                    currentTheme = currentTheme,
                     onBack = { pop() },
                 )
                 is Screen.StopBoard -> StopScreen(
@@ -129,6 +141,7 @@ fun App(themeStore: ThemeStore, currentTheme: AppTheme, initialStop: String? = n
                     timeController = timeController,
                     onBack = { pop() },
                     onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
+                    onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
                     onAddNotification = { stopCode, stopName ->
                         notifPrefill = Pair(stopCode, stopName)
                         scope.launch { pagerState.animateScrollToPage(1) }

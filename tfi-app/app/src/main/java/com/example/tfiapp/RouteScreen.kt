@@ -4,6 +4,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,16 +41,22 @@ fun RouteScreen(
                 navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
             ),
             navigationIcon = {
-                TextButton(
-                    onClick = onBack,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("←") }
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             },
             actions = {
-                TextButton(
-                    onClick = onFlip,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("⇄") }
+                IconButton(onClick = onFlip) {
+                    Icon(
+                        Icons.Filled.SwapHoriz,
+                        contentDescription = "Flip direction",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             },
         )
     }) { padding ->

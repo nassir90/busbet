@@ -79,33 +79,53 @@ fun StopMap(
         update = { map ->
             val density = map.context.resources.displayMetrics.density
 
-            map.setTileSource(tiles)
+            // Only swap the tile source when the style actually changed; calling this
+            // unconditionally triggers a full tile reload (a visible flash) every update.
+            if (map.tileProvider.tileSource !== tiles) {
+                map.setTileSource(tiles)
+            }
 
-            // Update stop marker
+            // Stop marker: move it in place rather than rebuilding the drawable each frame.
             map.overlays
                 .filterIsInstance<Marker>()
                 .firstOrNull { it.id == STOP_MARKER_TAG }
                 ?.let {
-                    it.position = GeoPoint(lat, lon)
-                    it.icon     = StopPinDrawable(pinArgb, density)
+                    val p = GeoPoint(lat, lon)
+                    if (it.position != p) it.position = p
                 }
 
-            // Remove stale vehicle markers
-            map.overlays.removeAll { m ->
-                m is Marker && m.id?.startsWith(VEHICLE_MARKER_TAG) == true
+            // Vehicle markers: diff by id and mutate in place instead of clearing and
+            // re-adding every poll. Tearing them all down is what makes the buses blink.
+            val prefix   = "$VEHICLE_MARKER_TAG:"
+            val existing = map.overlays
+                .filterIsInstance<Marker>()
+                .filter { it.id?.startsWith(prefix) == true }
+                .associateBy { it.id!! }
+            val wantedIds = vehicles.map { "$prefix${it.tripId}" }.toHashSet()
+
+            // Drop markers for vehicles that are gone.
+            existing.forEach { (id, marker) ->
+                if (id !in wantedIds) map.overlays.remove(marker)
             }
 
-            // Add fresh vehicle markers
+            // Add new vehicles, update existing ones in place.
             for (v in vehicles) {
-                val marker  = Marker(map).apply {
-                    position  = GeoPoint(v.lat, v.lon)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    icon      = BusMarkerDrawable(v.routeShortName, pinArgb, v.bearing, density)
-                    title     = null
-                    infoWindow = null
-                    id        = "$VEHICLE_MARKER_TAG:${v.tripId}"
+                val id     = "$prefix${v.tripId}"
+                val point  = GeoPoint(v.lat, v.lon)
+                val marker = existing[id]
+                if (marker == null) {
+                    map.overlays.add(Marker(map).apply {
+                        position  = point
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        icon      = BusMarkerDrawable(v.routeShortName, pinArgb, v.bearing, density)
+                        title     = null
+                        infoWindow = null
+                        this.id   = id
+                    })
+                } else {
+                    marker.position = point
+                    marker.icon     = BusMarkerDrawable(v.routeShortName, pinArgb, v.bearing, density)
                 }
-                map.overlays.add(marker)
             }
 
             map.invalidate()

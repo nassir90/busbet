@@ -2,6 +2,7 @@ package com.example.tfiapp
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +16,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -28,7 +32,16 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+
+/**
+ * Shared height for top-bar pills (the [TimeTravelChip] "now"/offset indicator and the
+ * Week/Day toggle in the notifications screen). The average of the two former sizes — a bit
+ * taller than the offset chip used to be, a bit shorter than the Week/Day toggle.
+ */
+val PILL_HEIGHT = 34.dp
 
 enum class TimeMode { RELATIVE, ABSOLUTE }
 
@@ -91,7 +104,11 @@ private fun absDate(sec: Long): String =
 private fun absHeader(sec: Long): String =
     if (abs(sec - System.currentTimeMillis() / 1000) < 60) "now" else absClock(sec)
 
-/** Top-bar toggle button; [onClick] shows/hides the inline [TimeTravelPanel]. */
+/**
+ * Top-bar toggle button; [onClick] shows/hides the inline [TimeTravelPanel]. Also a
+ * shortcut: dragging up/down on it spins the relative minute offset, using the same
+ * direction as the [Cylinder] drums (up = later, down = earlier).
+ */
 @Composable
 fun TimeTravelChip(controller: TimeController, onClick: () -> Unit) {
     val label = when {
@@ -99,6 +116,9 @@ fun TimeTravelChip(controller: TimeController, onClick: () -> Unit) {
         controller.mode == TimeMode.RELATIVE -> signedHhmm(controller.offsetMinutes)
         else -> controller.absoluteSec?.let { absHeader(it) } ?: "NOW"
     }
+
+    val stepPx = with(LocalDensity.current) { 26.dp.toPx() }
+    var residual by remember { mutableStateOf(0f) }
 
     Surface(
         color = if (controller.isLive) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f)
@@ -112,13 +132,67 @@ fun TimeTravelChip(controller: TimeController, onClick: () -> Unit) {
             Modifier
                 .clip(RoundedCornerShape(50))
                 .pointerInput(Unit) { detectTapGestures(onTap = { onClick() }) }
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        // The shortcut only makes sense in relative mode; enter it on first drag.
+                        onDragStart = { controller.useRelative() },
+                        onDragEnd = { residual = 0f },
+                        onDragCancel = { residual = 0f },
+                    ) { change, dy ->
+                        change.consume()
+                        residual += dy
+                        while (residual <= -stepPx) { controller.stepMinutes(1); residual += stepPx }
+                        while (residual >= stepPx) { controller.stepMinutes(-1); residual -= stepPx }
+                    }
+                }
+                .height(PILL_HEIGHT)
+                .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("🕑", style = MaterialTheme.typography.labelMedium)
+            ClockIcon(controller.querySec, Modifier.size(16.dp))
             Spacer(Modifier.width(4.dp))
             Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+/**
+ * A live analogue clock face whose hands point at [sec] (the instant being viewed), or the
+ * current time when null. Replaces the static Material `Schedule` icon so the hands track
+ * the relative offset as you scrub.
+ */
+@Composable
+private fun ClockIcon(sec: Long?, modifier: Modifier = Modifier) {
+    val tint = LocalContentColor.current
+    val dt = if (sec != null)
+        LocalDateTime.ofInstant(Instant.ofEpochSecond(sec), ZoneId.systemDefault())
+    else
+        LocalDateTime.now()
+    val minute = dt.minute
+    val hour = dt.hour % 12
+
+    Canvas(modifier) {
+        val r = size.minDimension / 2f
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val stroke = r * 0.13f
+
+        // Face (inset by half the stroke so the ring stays inside the bounds).
+        drawCircle(tint, radius = r - stroke / 2f, center = center, style = Stroke(width = stroke))
+
+        // Angles measured clockwise from 12 o'clock; -90° puts 0 at the top.
+        fun hand(angleDeg: Double, length: Float, width: Float) {
+            val a = Math.toRadians(angleDeg - 90.0)
+            drawLine(
+                tint,
+                center,
+                Offset(center.x + (cos(a) * length).toFloat(), center.y + (sin(a) * length).toFloat()),
+                strokeWidth = width,
+                cap = StrokeCap.Round,
+            )
+        }
+        // Minute hand: 6° per minute. Hour hand: 30° per hour + 0.5° per minute.
+        hand(minute * 6.0, r * 0.78f, stroke)
+        hand(hour * 30.0 + minute * 0.5, r * 0.5f, stroke)
     }
 }
 

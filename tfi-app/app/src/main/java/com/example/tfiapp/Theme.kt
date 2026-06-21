@@ -8,107 +8,244 @@ import androidx.compose.ui.graphics.Color
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 
-enum class AppTheme(val label: String) {
-    DEFAULT("Default (purple)"),
-    TFI("TFI (blue & yellow)"),
-    GREEN("TFI (green)");
+/**
+ * The editable colours for a single light/dark face. Stored as packed ARGB [Int]s so they
+ * serialise cleanly. Only the roles that visibly matter are editable; the rest of the
+ * Material [ColorScheme] is derived from these in [buildColorScheme].
+ */
+data class ColorSet(
+    val primary: Int,
+    val onPrimary: Int,
+    val secondary: Int,
+    val tertiary: Int,
+    val background: Int,
+    val surface: Int,
+    val onSurface: Int,
+    val onSurfaceVariant: Int,
+    val error: Int,
+)
 
-    companion object {
-        fun from(s: String?): AppTheme = entries.firstOrNull { it.name == s } ?: DEFAULT
-    }
+/**
+ * A palette is one identity with a [light] and a [dark] face. The app follows the system
+ * light/dark setting and shows the matching face. When [linkedDark] is true the dark face is
+ * generated from [light] automatically; the user can opt to give dark its own accents by
+ * unlinking it.
+ */
+data class AppPalette(
+    val id: String,
+    val name: String,
+    val light: ColorSet,
+    val dark: ColorSet,
+    val linkedDark: Boolean = true,
+    /** Built-in palettes can't be edited or deleted; users duplicate them to customise. */
+    val preset: Boolean = false,
+) {
+    /** The face to use for the given system theme. */
+    fun faceFor(systemDark: Boolean): ColorSet =
+        if (!systemDark) light else if (linkedDark) deriveDark(light) else dark
 }
 
-val DefaultColorScheme = lightColorScheme(
-    primary = Color(0xFF6750A4),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFEADDFF),
-    onPrimaryContainer = Color(0xFF21005D),
-    secondary = Color(0xFF625B71),
-    onSecondary = Color.White,
+/** The editable colour roles, exposed generically so the editor can render one row each. */
+data class PaletteRole(
+    val label: String,
+    val get: (ColorSet) -> Int,
+    val set: (ColorSet, Int) -> ColorSet,
 )
 
-val TfiColorScheme = lightColorScheme(
-    primary = Color(0xFF003B8C),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFD200),
-    onPrimaryContainer = Color(0xFF003B8C),
-    secondary = Color(0xFFFFD200),
-    onSecondary = Color(0xFF003B8C),
-    secondaryContainer = Color(0xFFFFE680),
-    onSecondaryContainer = Color(0xFF003B8C),
-    background = Color(0xFFEEF1F7),
-    surface = Color.White,
-    surfaceVariant = Color(0xFFE8ECF4),
+val PALETTE_ROLES: List<PaletteRole> = listOf(
+    PaletteRole("Primary (app bar)", { it.primary }, { s, c -> s.copy(primary = c) }),
+    PaletteRole("On primary (text on app bar)", { it.onPrimary }, { s, c -> s.copy(onPrimary = c) }),
+    PaletteRole("Secondary / accent", { it.secondary }, { s, c -> s.copy(secondary = c) }),
+    PaletteRole("Tertiary (live/early)", { it.tertiary }, { s, c -> s.copy(tertiary = c) }),
+    PaletteRole("Background", { it.background }, { s, c -> s.copy(background = c) }),
+    PaletteRole("Surface (cards)", { it.surface }, { s, c -> s.copy(surface = c) }),
+    PaletteRole("On surface (text)", { it.onSurface }, { s, c -> s.copy(onSurface = c) }),
+    PaletteRole("On surface muted", { it.onSurfaceVariant }, { s, c -> s.copy(onSurfaceVariant = c) }),
+    PaletteRole("Error", { it.error }, { s, c -> s.copy(error = c) }),
 )
 
-val DefaultColorSchemeDark = darkColorScheme(
-    primary = Color(0xFFD0BCFF),
-    onPrimary = Color(0xFF381E72),
-    primaryContainer = Color(0xFF4F378B),
-    onPrimaryContainer = Color(0xFFEADDFF),
-    secondary = Color(0xFFCCC2DC),
-    onSecondary = Color(0xFF332D41),
+private fun argb(hex: Long): Int = hex.toInt()
+
+private fun lightSet(
+    primary: Long, onPrimary: Long, secondary: Long, tertiary: Long,
+    background: Long, surface: Long, onSurface: Long, onSurfaceVariant: Long, error: Long,
+) = ColorSet(
+    argb(primary), argb(onPrimary), argb(secondary), argb(tertiary),
+    argb(background), argb(surface), argb(onSurface), argb(onSurfaceVariant), argb(error),
 )
 
-val TfiColorSchemeDark = darkColorScheme(
-    primary = Color(0xFF003B8C),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFD200),
-    onPrimaryContainer = Color(0xFF003B8C),
-    secondary = Color(0xFFFFD200),
-    onSecondary = Color(0xFF003B8C),
-    secondaryContainer = Color(0xFF6B5A00),
-    onSecondaryContainer = Color(0xFFFFD200),
-    background = Color(0xFF101418),
-    surface = Color(0xFF1A1F26),
-    surfaceVariant = Color(0xFF252B33),
-    onSurface = Color(0xFFE3E5E8),
-    onSurfaceVariant = Color(0xFFB8BCC2),
+/** Built-in palettes — the old fixed themes, now offered as starting points. */
+val PRESETS: List<AppPalette> = listOf(
+    AppPalette(
+        id = "preset-default", name = "Default (purple)", preset = true, linkedDark = false,
+        light = lightSet(
+            0xFF6750A4, 0xFFFFFFFF, 0xFF625B71, 0xFF7D5260,
+            0xFFFFFBFE, 0xFFFFFBFE, 0xFF1C1B1F, 0xFF49454F, 0xFFB3261E,
+        ),
+        dark = lightSet(
+            0xFFD0BCFF, 0xFF381E72, 0xFFCCC2DC, 0xFFEFB8C8,
+            0xFF1C1B1F, 0xFF1C1B1F, 0xFFE6E1E5, 0xFFCAC4D0, 0xFFF2B8B5,
+        ),
+    ),
+    AppPalette(
+        id = "preset-tfi", name = "TFI (blue & yellow)", preset = true, linkedDark = false,
+        light = lightSet(
+            0xFF003B8C, 0xFFFFFFFF, 0xFFFFD200, 0xFF2E7D32,
+            0xFFEEF1F7, 0xFFFFFFFF, 0xFF1C1B1F, 0xFF49454F, 0xFFB3261E,
+        ),
+        dark = lightSet(
+            0xFF4D8AE0, 0xFF001A40, 0xFFFFD200, 0xFF81C784,
+            0xFF101418, 0xFF1A1F26, 0xFFE3E5E8, 0xFFB8BCC2, 0xFFFF6679,
+        ),
+    ),
+    AppPalette(
+        id = "preset-green", name = "TFI (green)", preset = true, linkedDark = false,
+        light = lightSet(
+            0xFF3D5663, 0xFFFFFFFF, 0xFF3D5663, 0xFF2E7D32,
+            0xFFFFFBFE, 0xFFFFFBFE, 0xFF1C1B1F, 0xFF49454F, 0xFFB3261E,
+        ),
+        dark = lightSet(
+            0xFF8FB0BF, 0xFF10242E, 0xFF8FB0BF, 0xFF81C784,
+            0xFF14181C, 0xFF1B1F24, 0xFFE3E5E8, 0xFFB8BCC2, 0xFFF2B8B5,
+        ),
+    ),
 )
 
-val GreenColorScheme = lightColorScheme(
-    primary = Color(0xFF3D5663),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFBDD0D9),
-    onPrimaryContainer = Color(0xFF0D1E26),
-    secondary = Color(0xFF3D5663),
-    onSecondary = Color.White,
-)
+val DEFAULT_PALETTE: AppPalette get() = PRESETS[0]
 
-val GreenColorSchemeDark = darkColorScheme(
-    primary = Color(0xFF3D5663),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF243238),
-    onPrimaryContainer = Color(0xFFBDD0D9),
-    secondary = Color(0xFF3D5663),
-    onSecondary = Color.White,
-)
-
-fun colorsFor(theme: AppTheme, isDark: Boolean): ColorScheme = when {
-    theme == AppTheme.TFI && isDark -> TfiColorSchemeDark
-    theme == AppTheme.TFI -> TfiColorScheme
-    theme == AppTheme.GREEN && isDark -> GreenColorSchemeDark
-    theme == AppTheme.GREEN -> GreenColorScheme
-    isDark -> DefaultColorSchemeDark
-    else -> DefaultColorScheme
+private fun relLum(c: Int): Double {
+    val r = (c shr 16 and 0xFF) / 255.0
+    val g = (c shr 8 and 0xFF) / 255.0
+    val b = (c and 0xFF) / 255.0
+    return 0.299 * r + 0.587 * g + 0.114 * b
 }
 
-private val THEME_KEY = stringPreferencesKey("theme")
+/** Best black/white text colour for legibility on [c]. */
+fun contrastOn(c: Int): Int = if (relLum(c) > 0.55) argb(0xFF000000) else argb(0xFFFFFFFF)
 
-class ThemeStore(private val context: Context) {
-    val flow: Flow<AppTheme> = context.dataStore.data.map { prefs ->
-        AppTheme.from(prefs[THEME_KEY])
+/** Linear ARGB blend: t=0 → a, t=1 → b. Alpha forced opaque. */
+fun blend(a: Int, b: Int, t: Float): Int {
+    fun ch(sh: Int) = (((a shr sh and 0xFF) * (1 - t) + (b shr sh and 0xFF) * t)).toInt().coerceIn(0, 255)
+    return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+}
+
+// Neutral dark surfaces used when auto-generating a dark face.
+private val DARK_BG = argb(0xFF14181C)
+private val DARK_SURFACE = argb(0xFF1B1F24)
+private val DARK_ON_SURFACE = argb(0xFFE3E5E8)
+private val DARK_ON_SURFACE_VARIANT = argb(0xFFB8BCC2)
+
+/** Lighten a colour just enough to read on a dark surface. */
+private fun liftForDark(c: Int): Int = if (relLum(c) < 0.5) blend(c, argb(0xFFFFFFFF), 0.45f) else c
+
+/**
+ * Generate a dark face from a light one: keep the brand accents, swap to dark surfaces, and
+ * lighten the on-surface accents (tertiary/error) so they stay legible.
+ */
+fun deriveDark(light: ColorSet): ColorSet = light.copy(
+    background = DARK_BG,
+    surface = DARK_SURFACE,
+    onSurface = DARK_ON_SURFACE,
+    onSurfaceVariant = DARK_ON_SURFACE_VARIANT,
+    tertiary = liftForDark(light.tertiary),
+    error = liftForDark(light.error),
+)
+
+/** Expands a [ColorSet]'s key colours into a full Material [ColorScheme]. */
+fun buildColorScheme(set: ColorSet, dark: Boolean): ColorScheme {
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    return base.copy(
+        primary = Color(set.primary),
+        onPrimary = Color(set.onPrimary),
+        primaryContainer = Color(blend(set.surface, set.primary, if (dark) 0.30f else 0.16f)),
+        onPrimaryContainer = Color(set.primary),
+        secondary = Color(set.secondary),
+        onSecondary = Color(contrastOn(set.secondary)),
+        secondaryContainer = Color(blend(set.surface, set.secondary, if (dark) 0.30f else 0.20f)),
+        onSecondaryContainer = Color(set.onSurface),
+        tertiary = Color(set.tertiary),
+        onTertiary = Color(contrastOn(set.tertiary)),
+        background = Color(set.background),
+        onBackground = Color(set.onSurface),
+        surface = Color(set.surface),
+        onSurface = Color(set.onSurface),
+        surfaceVariant = Color(blend(set.surface, set.onSurface, 0.08f)),
+        onSurfaceVariant = Color(set.onSurfaceVariant),
+        // Cards (ElevatedCard) read these; step them off the surface so they read grayish
+        // against the background instead of blending into it.
+        surfaceContainerLowest = Color(set.surface),
+        surfaceContainerLow = Color(blend(set.surface, set.onSurface, 0.04f)),
+        surfaceContainer = Color(blend(set.surface, set.onSurface, 0.06f)),
+        surfaceContainerHigh = Color(blend(set.surface, set.onSurface, 0.09f)),
+        surfaceContainerHighest = Color(blend(set.surface, set.onSurface, 0.12f)),
+        error = Color(set.error),
+        onError = Color(contrastOn(set.error)),
+        outline = Color(set.onSurfaceVariant),
+        outlineVariant = Color(blend(set.surface, set.onSurface, 0.22f)),
+    )
+}
+
+fun buildColorScheme(palette: AppPalette, dark: Boolean): ColorScheme =
+    buildColorScheme(palette.faceFor(dark), dark)
+
+/** Resolve the selected id against presets + custom palettes, falling back to default. */
+fun resolvePalette(id: String?, custom: List<AppPalette>): AppPalette =
+    (PRESETS + custom).firstOrNull { it.id == id } ?: DEFAULT_PALETTE
+
+/** A fresh editable copy of [base] with a new id, ready to customise. */
+fun duplicatePalette(base: AppPalette, name: String): AppPalette =
+    base.copy(id = "custom-${UUID.randomUUID()}", name = name, preset = false)
+
+private val SELECTED_KEY = stringPreferencesKey("palette_selected_v2")
+private val CUSTOM_KEY = stringPreferencesKey("palette_custom_v2")
+private val paletteGson = Gson()
+private val paletteListType = object : TypeToken<List<AppPalette>>() {}.type
+
+class PaletteStore(private val context: Context) {
+    val selectedId: Flow<String> = context.dataStore.data.map { it[SELECTED_KEY] ?: DEFAULT_PALETTE.id }
+
+    val customPalettes: Flow<List<AppPalette>> = context.dataStore.data.map { prefs ->
+        prefs[CUSTOM_KEY]?.let { paletteGson.fromJson<List<AppPalette>>(it, paletteListType) } ?: emptyList()
     }
 
-    suspend fun set(theme: AppTheme) {
-        context.dataStore.edit { it[THEME_KEY] = theme.name }
+    suspend fun select(id: String) {
+        context.dataStore.edit { it[SELECTED_KEY] = id }
     }
+
+    /** Insert or replace a custom palette (matched by id) and leave it selected. */
+    suspend fun upsert(palette: AppPalette) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[CUSTOM_KEY]?.let { paletteGson.fromJson<List<AppPalette>>(it, paletteListType) } ?: emptyList()
+            val saved = palette.copy(preset = false)
+            prefs[CUSTOM_KEY] = paletteGson.toJson(current.filterNot { it.id == saved.id } + saved)
+            prefs[SELECTED_KEY] = saved.id
+        }
+    }
+
+    suspend fun delete(id: String) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[CUSTOM_KEY]?.let { paletteGson.fromJson<List<AppPalette>>(it, paletteListType) } ?: emptyList()
+            prefs[CUSTOM_KEY] = paletteGson.toJson(current.filterNot { it.id == id })
+            if (prefs[SELECTED_KEY] == id) prefs[SELECTED_KEY] = DEFAULT_PALETTE.id
+        }
+    }
+
+    /** One-shot read of the selected palette, for non-Compose consumers (widget, service). */
+    suspend fun current(): AppPalette = resolvePalette(selectedId.first(), customPalettes.first())
 }
 
 private val LOCATION_AWARE_KEY = booleanPreferencesKey("location_aware")
+private val HIDE_FAR_STOPS_KEY = booleanPreferencesKey("hide_far_stops")
+
+/** Favourites farther than this (metres) are dimmed + collapsed when hide-far is on. */
+const val FAR_STOP_THRESHOLD_M = 5000f
 
 class SettingsStore(private val context: Context) {
     val locationAware: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -117,5 +254,13 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setLocationAware(enabled: Boolean) {
         context.dataStore.edit { it[LOCATION_AWARE_KEY] = enabled }
+    }
+
+    val hideFarStops: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[HIDE_FAR_STOPS_KEY] ?: false
+    }
+
+    suspend fun setHideFarStops(enabled: Boolean) {
+        context.dataStore.edit { it[HIDE_FAR_STOPS_KEY] = enabled }
     }
 }

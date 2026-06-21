@@ -7,12 +7,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -33,18 +38,25 @@ fun HomeScreen(
     onOpenStop: (String) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
+    onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
     onOpenSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
     val favourites by favStore.flow.collectAsState(initial = emptyList())
     val locationAware by settingsStore.locationAware.collectAsState(initial = false)
+    val hideFarStops by settingsStore.hideFarStops.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
-    // Current location for distance sorting (refreshed when location-aware mode turns on)
+    // Bumped on pull-to-refresh; drives both per-card departure reloads and the location fix.
+    var refreshKey by remember { mutableStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    // Current location for distance sorting. Re-acquired whenever location-aware mode is
+    // turned on and on every pull-to-refresh, so the fix never silently goes stale.
     var userLocation by remember { mutableStateOf<android.location.Location?>(null) }
-    LaunchedEffect(locationAware) {
+    LaunchedEffect(locationAware, refreshKey) {
         userLocation = if (locationAware) LocationProvider.current(context) else null
     }
 
@@ -104,8 +116,6 @@ fun HomeScreen(
         localOrder = localOrder.toMutableList().apply { add(to.index, removeAt(from.index)) }
     }
 
-    var refreshKey by remember { mutableStateOf(0) }
-    var isRefreshing by remember { mutableStateOf(false) }
     var showTimePanel by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -122,10 +132,13 @@ fun HomeScreen(
             actions = {
                 if (anyStale) StaleBadge()
                 TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
-                TextButton(
-                    onClick = onOpenSettings,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("☰") }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        Icons.Filled.Menu,
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             },
         )
     }) { padding ->
@@ -138,11 +151,22 @@ fun HomeScreen(
           ) {
               TimeTravelPanel(timeController)
           }
+          PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                scope.launch {
+                    isRefreshing = true
+                    refreshKey++
+                    delay(900)
+                    isRefreshing = false
+                }
+            },
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+          ) {
           Column(
             Modifier
                 .padding(horizontal = 16.dp)
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
         ) {
             OutlinedTextField(
                 value = query,
@@ -153,11 +177,9 @@ fun HomeScreen(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 trailingIcon = if (query.isNotEmpty()) {
                     {
-                        TextButton(
-                            onClick = { query = "" },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 1.dp).padding(end = 8.dp),
-                        ) { Text("✕") }
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear")
+                        }
                     }
                 } else null,
                 modifier = Modifier.fillMaxWidth(),
@@ -210,21 +232,9 @@ fun HomeScreen(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = {
-                        scope.launch {
-                            isRefreshing = true
-                            refreshKey++
-                            delay(900)
-                            isRefreshing = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                ) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                     contentPadding = PaddingValues(bottom = navBottom + 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -240,19 +250,27 @@ fun HomeScreen(
                                             scope.launch { favStore.reorder(localOrder.map { it.code }) }
                                         },
                                     )
-                            val distanceLabel = if (sortByDistance && fav.lat != null && fav.lon != null) {
-                                val m = LocationProvider.distanceMeters(
+                            val distanceMeters = if (sortByDistance && fav.lat != null && fav.lon != null) {
+                                LocationProvider.distanceMeters(
                                     userLocation!!.latitude, userLocation!!.longitude, fav.lat, fav.lon,
                                 )
-                                if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000f)
                             } else null
+                            val distanceLabel = distanceMeters?.let { m ->
+                                if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000f)
+                            }
+                            val isFar = hideFarStops && distanceMeters != null &&
+                                distanceMeters > FAR_STOP_THRESHOLD_M
                             FavouriteCard(
                                 favourite = fav,
                                 isDragging = isDragging,
                                 showHandle = !sortByDistance,
                                 distanceLabel = distanceLabel,
+                                dimmed = isFar,
+                                autoCollapsed = isFar,
                                 onOpen = { onOpenStop(fav.code) },
                                 onOpenTrip = onOpenTrip,
+                                onOpenRoute = onOpenRoute,
+                                onReport = onReport,
                                 onRemove = { scope.launch { favStore.remove(fav.code) } },
                                 onSetCustomName = { name -> scope.launch { favStore.setCustomName(fav.code, name) } },
                                 onToggleCollapsed = { scope.launch { favStore.setCollapsed(fav.code, !fav.collapsed) } },
@@ -264,7 +282,6 @@ fun HomeScreen(
                         }
                     }
                 }
-                }
             } else {
                 Spacer(Modifier.height(24.dp))
                 Text(
@@ -273,6 +290,7 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+          }
           }
         }
     }
@@ -285,7 +303,7 @@ fun StaleBadge() {
         Modifier.padding(end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("⚠", color = amber, style = MaterialTheme.typography.titleMedium)
+        Icon(Icons.Filled.Warning, contentDescription = null, tint = amber, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(4.dp))
         Text("stale", color = amber, style = MaterialTheme.typography.labelMedium)
     }
@@ -340,6 +358,8 @@ private fun FavouriteCard(
     isDragging: Boolean,
     onOpen: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
+    onOpenRoute: (route: String, direction: Int) -> Unit = { _, _ -> },
+    onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
     onRemove: () -> Unit,
     onSetCustomName: (String?) -> Unit,
     onToggleCollapsed: () -> Unit,
@@ -347,6 +367,8 @@ private fun FavouriteCard(
     onStaleChanged: (Boolean) -> Unit,
     showHandle: Boolean = true,
     distanceLabel: String? = null,
+    dimmed: Boolean = false,
+    autoCollapsed: Boolean = false,
     refreshKey: Int = 0,
     timeSec: Long? = null,
 ) {
@@ -358,6 +380,11 @@ private fun FavouriteCard(
             onConfirm = { name -> onSetCustomName(name); showRename = false },
         )
     }
+
+    // A far stop is auto-collapsed, but the user can tap to peek without changing the
+    // persisted collapsed state. Peek resets whenever the stop moves in/out of "far".
+    var peek by remember(favourite.code, autoCollapsed) { mutableStateOf(false) }
+    val collapsed = if (autoCollapsed) !peek else favourite.collapsed
 
     var deps by remember(favourite.code, timeSec) {
         mutableStateOf(if (timeSec == null) DeparturesCache.get(favourite.code)?.departures?.take(3) else null)
@@ -386,7 +413,7 @@ private fun FavouriteCard(
     }
 
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().alpha(if (dimmed) 0.45f else 1f),
         elevation = CardDefaults.elevatedCardElevation(
             defaultElevation = if (isDragging) 8.dp else 1.dp,
         ),
@@ -420,11 +447,13 @@ private fun FavouriteCard(
                         modifier = handleModifier,
                     )
                 }
-                TextButton(onClick = onToggleCollapsed) { Text(if (favourite.collapsed) "Expand" else "Collapse") }
+                TextButton(
+                    onClick = { if (autoCollapsed) peek = !peek else onToggleCollapsed() },
+                ) { Text(if (collapsed) "Expand" else "Collapse") }
                 TextButton(onClick = { showRename = true }) { Text("Rename") }
                 TextButton(onClick = onRemove) { Text("Remove") }
             }
-            if (!favourite.collapsed) {
+            if (!collapsed) {
                 Spacer(Modifier.height(4.dp))
                 when {
                     deps == null && initialError != null ->
@@ -437,7 +466,13 @@ private fun FavouriteCard(
                                 .let { z -> z.hour * 60 + z.minute }
                         } ?: java.time.LocalTime.now().let { it.hour * 60 + it.minute }
                         deps!!.forEach { d ->
-                            DepartureRow(d, nowMins = refNowMins, onOpenRoute = { onOpenTrip(d.tripId, favourite.code) }, onReport = {})
+                            DepartureRow(
+                                d,
+                                nowMins = refNowMins,
+                                onOpenRoute = { onOpenTrip(d.tripId, favourite.code) },
+                                onOpenService = { onOpenRoute(d.routeShortName, d.directionId) },
+                                onReport = { onReport(d, favourite.code, favourite.name) },
+                            )
                         }
                     }
                 }

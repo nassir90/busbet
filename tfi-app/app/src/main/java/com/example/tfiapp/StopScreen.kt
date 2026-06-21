@@ -6,6 +6,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -28,6 +33,7 @@ fun StopScreen(
     timeController: TimeController,
     onBack: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
+    onOpenRoute: (route: String, direction: Int) -> Unit = { _, _ -> },
     onAddNotification: (stopCode: String, stopName: String) -> Unit = { _, _ -> },
     onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
 ) {
@@ -85,17 +91,20 @@ fun StopScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(title, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
                     Spacer(Modifier.width(4.dp))
-                    TextButton(
+                    IconButton(
                         onClick = {
                             scope.launch {
                                 if (isFavourite) favStore.remove(code)
                                 else favStore.add(code, stop?.stopName ?: code, stop?.stopLat, stop?.stopLon)
                             }
                         },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
-                    ) { Text(if (isFavourite) "★" else "☆") }
+                    ) {
+                        Icon(
+                            if (isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = if (isFavourite) "Remove favourite" else "Add favourite",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -105,18 +114,26 @@ fun StopScreen(
                 navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
             ),
             navigationIcon = {
-                TextButton(
-                    onClick = onBack,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("←") }
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             },
             actions = {
                 if (stale) StaleBadge()
                 TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
-                TextButton(
+                IconButton(
                     onClick = { onAddNotification(code, stop?.stopName ?: code) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary),
-                ) { Text("🔔") }
+                ) {
+                    Icon(
+                        Icons.Filled.Notifications,
+                        contentDescription = "Add notification",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             },
         )
     }) { padding ->
@@ -170,6 +187,7 @@ fun StopScreen(
                                     d,
                                     nowMins = refNowMins,
                                     onOpenRoute = { onOpenTrip(d.tripId, code) },
+                                    onOpenService = { onOpenRoute(d.routeShortName, d.directionId) },
                                     onReport = { onReport(d, code, data?.stop?.stopName ?: code) },
                                 )
                                 HorizontalDivider()
@@ -200,6 +218,7 @@ fun DepartureRow(
     d: Departure,
     nowMins: Int = LocalTime.now().let { it.hour * 60 + it.minute },
     onOpenRoute: () -> Unit,
+    onOpenService: () -> Unit = {},
     onReport: () -> Unit = {},
 ) {
     val effective = d.estimatedDeparture ?: d.scheduledDeparture
@@ -213,7 +232,7 @@ fun DepartureRow(
         Surface(
             color = MaterialTheme.colorScheme.primary,
             shape = MaterialTheme.shapes.small,
-            modifier = Modifier.widthIn(min = 48.dp),
+            modifier = Modifier.widthIn(min = 48.dp).clickable(onClick = onOpenService),
         ) {
             Text(
                 d.routeShortName,

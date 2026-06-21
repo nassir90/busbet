@@ -45,13 +45,6 @@ import java.time.format.DateTimeFormatter
 val STOP_CODE_KEY = stringPreferencesKey("stopCode")
 val STOP_NAME_KEY = stringPreferencesKey("stopName")
 
-private val FG_DEFAULT = Color(0xFF6750A4)
-private val FG_TFI = Color(0xFF003B8C)
-private val FG_GREEN = Color(0xFF3D5663)
-private val FG_DEFAULT_DARK = Color(0xFFD0BCFF)
-private val FG_TFI_DARK = Color(0xFF003B8C)
-private val FG_GREEN_DARK = Color(0xFF3D5663)
-
 private data class Palette(
     val cardBg: Color,
     val textPrimary: Color,
@@ -64,31 +57,17 @@ private data class Palette(
     val accent: Color,
 )
 
-private fun palette(theme: AppTheme, isDark: Boolean): Palette = if (isDark) {
-    Palette(
-        cardBg = Color(0xFF1A1F26),
-        textPrimary = Color(0xFFE3E5E8),
-        textSecondary = Color(0xFFB8BCC2),
-        textTertiary = Color(0xFF8A8E94),
-        divider = Color(0xFF2A2F36),
-        dueRed = Color(0xFFFF6679),
-        refreshBg = Color(0xFF2A2F36),
-        routePillText = Color.White,
-        accent = when (theme) { AppTheme.TFI -> FG_TFI_DARK; AppTheme.GREEN -> FG_GREEN_DARK; else -> FG_DEFAULT_DARK },
-    )
-} else {
-    Palette(
-        cardBg = Color(0xFFFFFFFF),
-        textPrimary = Color(0xFF111111),
-        textSecondary = Color(0xFF666666),
-        textTertiary = Color(0xFF999999),
-        divider = Color(0xFFE6E0EC),
-        dueRed = Color(0xFFB00020),
-        refreshBg = Color(0xFFF1ECF6),
-        routePillText = Color.White,
-        accent = when (theme) { AppTheme.TFI -> FG_TFI; AppTheme.GREEN -> FG_GREEN; else -> FG_DEFAULT },
-    )
-}
+private fun glancePalette(p: ColorSet): Palette = Palette(
+    cardBg = Color(p.surface),
+    textPrimary = Color(p.onSurface),
+    textSecondary = Color(p.onSurfaceVariant),
+    textTertiary = Color(blend(p.surface, p.onSurfaceVariant, 0.6f)),
+    divider = Color(blend(p.surface, p.onSurface, 0.12f)),
+    dueRed = Color(p.error),
+    refreshBg = Color(blend(p.surface, p.onSurface, 0.06f)),
+    routePillText = Color(p.onPrimary),
+    accent = Color(p.primary),
+)
 
 class StopWidget : GlanceAppWidget() {
     override val stateDefinition = PreferencesGlanceStateDefinition
@@ -99,10 +78,10 @@ class StopWidget : GlanceAppWidget() {
         val name = prefs[STOP_NAME_KEY]
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
 
-        val theme = runCatching { ThemeStore(context).flow.first() }.getOrDefault(AppTheme.DEFAULT)
+        val appPalette = runCatching { PaletteStore(context).current() }.getOrDefault(DEFAULT_PALETTE)
         val isDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
-        val pal = palette(theme, isDark)
+        val pal = glancePalette(appPalette.faceFor(isDark))
 
         val deps: List<Departure>? = if (code != null) {
             runCatching { Api.service.departures(code).departures.take(3) }.getOrNull()
