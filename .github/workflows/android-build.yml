@@ -30,7 +30,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle              # caches ~/.gradle keyed off gradle files
+          # Caching is handled by gradle/actions/setup-gradle below, not here.
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        # Caches the whole Gradle User Home (~/.gradle): downloaded dependencies,
+        # the wrapper, AND the build cache (task outputs). Its key strategy restores
+        # the most recent cache on this branch, falling back to the default branch —
+        # so a branch build inherits master's cache (the "parent commit"). By default
+        # it only WRITES caches from the default branch, keeping branch runs from
+        # polluting the shared cache.
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -41,7 +50,8 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Assemble debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew :app:assembleDebug --build-cache --no-daemon --stacktrace
+        # --build-cache reuses unchanged task outputs from the restored cache.
         # No JAVA_HOME override needed: setup-java sets JAVA_HOME on the runner.
         # No signing config required for the debug variant (debug keystore).
 
