@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -18,6 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -44,6 +46,8 @@ fun HomeScreen(
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
     val favourites by favStore.flow.collectAsState(initial = emptyList())
+    val historyStore = remember { SearchHistoryStore(context) }
+    val history by historyStore.flow.collectAsState(initial = emptyList())
     val locationAware by settingsStore.locationAware.collectAsState(initial = false)
     val hideFarStops by settingsStore.hideFarStops.collectAsState(initial = false)
     val scope = rememberCoroutineScope()
@@ -64,6 +68,7 @@ fun HomeScreen(
     var stopResults by remember { mutableStateOf<List<Stop>>(emptyList()) }
     var routeResults by remember { mutableStateOf<List<RouteDirection>>(emptyList()) }
     var searchError by remember { mutableStateOf<String?>(null) }
+    var searchFocused by remember { mutableStateOf(false) }
 
     LaunchedEffect(query) {
         if (query.length < 2) {
@@ -182,7 +187,7 @@ fun HomeScreen(
                         }
                     }
                 } else null,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { searchFocused = it.isFocused },
             )
             Spacer(Modifier.height(8.dp))
 
@@ -199,7 +204,20 @@ fun HomeScreen(
                             items(routeResults) { r ->
                                 ListItem(
                                     headlineContent = { Text("${r.routeShortName}  ${r.fromStop} → ${r.toStop}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    modifier = Modifier.clickable { onOpenRoute(r.routeShortName, r.directionId) },
+                                    modifier = Modifier.clickable {
+                                        scope.launch {
+                                            historyStore.record(
+                                                SearchHistoryEntry(
+                                                    isRoute = true,
+                                                    id = "${r.routeShortName}|${r.directionId}",
+                                                    label = "${r.routeShortName}  ${r.fromStop} → ${r.toStop}",
+                                                    routeShortName = r.routeShortName,
+                                                    directionId = r.directionId,
+                                                )
+                                            )
+                                        }
+                                        onOpenRoute(r.routeShortName, r.directionId)
+                                    },
                                 )
                                 HorizontalDivider()
                             }
@@ -209,10 +227,54 @@ fun HomeScreen(
                             items(stopResults) { s ->
                                 ListItem(
                                     headlineContent = { Text("${s.stopCode}  ${s.stopName}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    modifier = Modifier.clickable { onOpenStop(s.stopCode) },
+                                    modifier = Modifier.clickable {
+                                        scope.launch {
+                                            historyStore.record(
+                                                SearchHistoryEntry(
+                                                    isRoute = false,
+                                                    id = s.stopCode,
+                                                    label = "${s.stopCode}  ${s.stopName}",
+                                                )
+                                            )
+                                        }
+                                        onOpenStop(s.stopCode)
+                                    },
                                 )
                                 HorizontalDivider()
                             }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            } else if (searchFocused && query.isEmpty() && history.isNotEmpty()) {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                        item {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                SectionLabel("Recent searches")
+                                TextButton(onClick = { scope.launch { historyStore.clear() } }) { Text("Clear") }
+                            }
+                        }
+                        items(history, key = { "${it.isRoute}:${it.id}" }) { h ->
+                            ListItem(
+                                leadingContent = {
+                                    Icon(Icons.Filled.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                },
+                                headlineContent = { Text(h.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                modifier = Modifier.clickable {
+                                    scope.launch { historyStore.record(h) }
+                                    if (h.isRoute && h.routeShortName != null && h.directionId != null) {
+                                        onOpenRoute(h.routeShortName, h.directionId)
+                                    } else {
+                                        onOpenStop(h.id)
+                                    }
+                                },
+                            )
+                            HorizontalDivider()
                         }
                     }
                 }
