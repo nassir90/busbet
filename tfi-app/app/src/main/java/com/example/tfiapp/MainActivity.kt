@@ -143,6 +143,7 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
                     onBack = { pop() },
                     onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
                     onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
+                    onOpenNotifications = { scope.launch { pagerState.animateScrollToPage(1) } },
                     onReport = { d, stopCode, stopName ->
                         stack.add(
                             Screen.Report(

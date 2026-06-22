@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
@@ -34,6 +35,7 @@ fun StopScreen(
     onBack: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit = { _, _ -> },
+    onOpenNotifications: () -> Unit = {},
     onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
 ) {
     val context = LocalContext.current
@@ -129,6 +131,13 @@ fun StopScreen(
             actions = {
                 if (stale) StaleBadge()
                 TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
+                IconButton(onClick = onOpenNotifications) {
+                    Icon(
+                        Icons.Filled.Notifications,
+                        contentDescription = "Notifications",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             },
         )
     }) { padding ->
