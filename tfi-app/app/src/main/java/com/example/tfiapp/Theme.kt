@@ -7,6 +7,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -243,9 +244,13 @@ class PaletteStore(private val context: Context) {
 
 private val LOCATION_AWARE_KEY = booleanPreferencesKey("location_aware")
 private val HIDE_FAR_STOPS_KEY = booleanPreferencesKey("hide_far_stops")
+private val BUS_DISPLAY_THRESHOLD_KEY = intPreferencesKey("bus_display_threshold_min")
 
 /** Favourites farther than this (metres) are dimmed + collapsed when hide-far is on. */
 const val FAR_STOP_THRESHOLD_M = 5000f
+
+/** Default: only render a bus marker once it's due within this many minutes. */
+const val DEFAULT_BUS_DISPLAY_THRESHOLD_MIN = 60
 
 class SettingsStore(private val context: Context) {
     val locationAware: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -262,5 +267,13 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setHideFarStops(enabled: Boolean) {
         context.dataStore.edit { it[HIDE_FAR_STOPS_KEY] = enabled }
+    }
+
+    val busDisplayThresholdMin: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[BUS_DISPLAY_THRESHOLD_KEY] ?: DEFAULT_BUS_DISPLAY_THRESHOLD_MIN
+    }
+
+    suspend fun setBusDisplayThresholdMin(minutes: Int) {
+        context.dataStore.edit { it[BUS_DISPLAY_THRESHOLD_KEY] = minutes }
     }
 }

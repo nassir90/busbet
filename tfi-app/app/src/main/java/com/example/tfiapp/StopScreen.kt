@@ -31,6 +31,7 @@ import java.time.format.DateTimeFormatter
 fun StopScreen(
     code: String,
     timeController: TimeController,
+    settingsStore: SettingsStore,
     onBack: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit = { _, _ -> },
@@ -50,6 +51,11 @@ fun StopScreen(
     var refreshKey by remember(code) { mutableStateOf(0) }
     var isRefreshing by remember(code) { mutableStateOf(false) }
     val querySec = timeController.committedSec
+    val busDisplayThresholdMin by settingsStore.busDisplayThresholdMin.collectAsState(initial = DEFAULT_BUS_DISPLAY_THRESHOLD_MIN)
+    val nowMins = querySec?.let {
+        java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
+            .let { z -> z.hour * 60 + z.minute }
+    } ?: LocalTime.now().let { it.hour * 60 + it.minute }
 
     LaunchedEffect(code, refreshKey, querySec) {
         while (true) {
@@ -147,10 +153,14 @@ fun StopScreen(
             }
             // Map sits at the top, just below the app bar
             if (stop?.stopLat != null && stop.stopLon != null) {
+                val shownVehicles = vehicles.filter { v ->
+                    val due = dueMinutesFor(v, data?.departures, nowMins)
+                    due == null || due <= busDisplayThresholdMin
+                }
                 StopMap(
                     lat = stop.stopLat,
                     lon = stop.stopLon,
-                    vehicles = vehicles,
+                    vehicles = shownVehicles,
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                 )
             }
@@ -177,15 +187,11 @@ fun StopScreen(
                     data == null -> EmptyMessage("Loading…")
                     data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.")
                     else -> {
-                        val refNowMins = querySec?.let {
-                            java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
-                                .let { z -> z.hour * 60 + z.minute }
-                        } ?: LocalTime.now().let { it.hour * 60 + it.minute }
                         LazyColumn(Modifier.fillMaxSize()) {
                             items(data!!.departures) { d ->
                                 DepartureRow(
                                     d,
-                                    nowMins = refNowMins,
+                                    nowMins = nowMins,
                                     onOpenRoute = { onOpenTrip(d.tripId, code) },
                                     onOpenService = { onOpenRoute(d.routeShortName, d.directionId) },
                                     onReport = { onReport(d, code, data?.stop?.stopName ?: code) },
@@ -264,6 +270,13 @@ fun DepartureRow(
 private fun toMinutes(hhmm: String): Int {
     val (h, m) = hhmm.split(":").map { it.toInt() }
     return h * 60 + m
+}
+
+/** Minutes until the vehicle's trip is due at this stop, or null if no matching departure was found. */
+private fun dueMinutesFor(vehicle: VehiclePosition, departures: List<Departure>?, nowMins: Int): Int? {
+    val match = departures?.firstOrNull { it.tripId == vehicle.tripId } ?: return null
+    val effectiveMins = toMinutes(match.estimatedDeparture ?: match.scheduledDeparture)
+    return (effectiveMins - nowMins).let { if (it < -720) it + 1440 else it }
 }
 
 private fun dueLabel(diff: Int): String = when {
