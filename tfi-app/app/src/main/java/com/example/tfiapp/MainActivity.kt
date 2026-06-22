@@ -21,9 +21,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 
@@ -89,8 +87,6 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
         scope.launch { pagerState.animateScrollToPage(0) }
     }
 
-    var notifPrefill by remember { mutableStateOf<Pair<String, String>?>(null) }
-
     // Debounce time-travel selection so spinning the drums doesn't refetch the board
     // on every detent — only the settled instant reaches the screens.
     LaunchedEffect(timeController.querySec) {
@@ -99,9 +95,12 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
         else { delay(300); timeController.committedSec = q }
     }
 
-    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+    // Swipe-to-switch is disabled: the pager is driven only by explicit navigation
+    // actions, so a horizontal drag on a map (or anything else) on page 0 can never
+    // be mistaken for a page transition to the notifications screen.
+    HorizontalPager(state = pagerState, userScrollEnabled = false, modifier = Modifier.fillMaxSize()) { page ->
         if (page == 1) {
-            NotificationScreen(prefill = notifPrefill, onPrefillConsumed = { notifPrefill = null })
+            NotificationScreen()
             return@HorizontalPager
         }
 
@@ -127,6 +126,7 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
                 )
             },
             onOpenSettings = { stack.add(Screen.Settings) },
+            onOpenNotifications = { scope.launch { pagerState.animateScrollToPage(1) } },
         )
         stack.forEachIndexed { i, layer ->
             when (layer) {
@@ -142,10 +142,6 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
                     onBack = { pop() },
                     onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
                     onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
-                    onAddNotification = { stopCode, stopName ->
-                        notifPrefill = Pair(stopCode, stopName)
-                        scope.launch { pagerState.animateScrollToPage(1) }
-                    },
                     onReport = { d, stopCode, stopName ->
                         stack.add(
                             Screen.Report(
