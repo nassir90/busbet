@@ -14,6 +14,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +30,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,11 +51,56 @@ fun SettingsScreen(
     val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
     val allPalettes = PRESETS + customPalettes
 
+    val configBackupStore = remember(paletteStore, settingsStore) {
+        ConfigBackupStore(context, paletteStore = paletteStore, settingsStore = settingsStore)
+    }
+    val namedConfigs by configBackupStore.namedConfigs.collectAsState(initial = emptyList())
+    val snackbarHostState = remember { SnackbarHostState() }
+    // Holds the action to run once the user confirms an overwrite (import or named reload).
+    var pendingOverwrite by remember { mutableStateOf<(suspend () -> Unit)?>(null) }
+    var newSnapshotName by remember { mutableStateOf("") }
+
     // Non-null while the palette editor is open.
     var editing by remember { mutableStateOf<AppPalette?>(null) }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         scope.launch { settingsStore.setLocationAware(granted) }
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = runCatching {
+                val json = configBackupStore.toJson(configBackupStore.snapshot())
+                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+                    ?: error("Couldn't open file for writing")
+            }
+            snackbarHostState.showSnackbar(if (result.isSuccess) "Config exported" else "Export failed: ${result.exceptionOrNull()?.message}")
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        pendingOverwrite = {
+            val result = runCatching {
+                val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: error("Couldn't open file for reading")
+                configBackupStore.restore(configBackupStore.fromJson(json))
+            }
+            snackbarHostState.showSnackbar(if (result.isSuccess) "Config imported" else "Import failed: ${result.exceptionOrNull()?.message}")
+        }
+    }
+
+    pendingOverwrite?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingOverwrite = null },
+            title = { Text("Replace current config?") },
+            text = { Text("This overwrites your saved stops, theme, and settings with the loaded config.") },
+            confirmButton = {
+                TextButton(onClick = { scope.launch { action() }; pendingOverwrite = null }) { Text("Replace") }
+            },
+            dismissButton = { TextButton(onClick = { pendingOverwrite = null }) { Text("Cancel") } },
+        )
     }
 
     editing?.let { target ->
@@ -82,6 +134,7 @@ fun SettingsScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
             Modifier
@@ -196,10 +249,123 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            // ── Backup ───────────────────────────────────────────────────────
+            SectionHeader("Backup")
+            Text(
+                "Export your favourites and settings to a file so an upgrade or reinstall can't lose them, " +
+                    "or save a named snapshot to switch setups instantly (handy for a kiosk).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { exportLauncher.launch(defaultConfigFileName()) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Export")
+                }
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("application/json")) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Import")
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("Named snapshots", style = MaterialTheme.typography.bodyLarge)
+            if (namedConfigs.isEmpty()) {
+                Text(
+                    "No snapshots saved yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+            namedConfigs.sortedByDescending { it.savedAt }.forEach { saved ->
+                NamedConfigRow(
+                    saved = saved,
+                    onLoad = {
+                        pendingOverwrite = {
+                            configBackupStore.reload(saved.id)
+                            snackbarHostState.showSnackbar("Loaded \"${saved.name}\"")
+                        }
+                    },
+                    onDelete = { scope.launch { configBackupStore.deleteNamed(saved.id) } },
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = newSnapshotName,
+                    onValueChange = { newSnapshotName = it },
+                    label = { Text("Snapshot name") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        val name = newSnapshotName.trim()
+                        if (name.isNotEmpty()) {
+                            scope.launch { configBackupStore.saveNamed(name) }
+                            newSnapshotName = ""
+                        }
+                    },
+                    enabled = newSnapshotName.isNotBlank(),
+                ) {
+                    Icon(Icons.Filled.Save, contentDescription = "Save snapshot")
+                }
+            }
             Spacer(Modifier.height(24.dp))
         }
     }
 }
+
+/** Suggested filename for an exported config, e.g. "tfi-config-2026-06-22.json". */
+private fun defaultConfigFileName(): String =
+    "tfi-config-${java.time.LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)}.json"
+
+@Composable
+private fun NamedConfigRow(saved: NamedConfig, onLoad: () -> Unit, onDelete: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(saved.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+            Text(
+                "Saved ${formatSavedAt(saved.savedAt)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onLoad) {
+            Icon(Icons.Filled.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Load")
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "Delete ${saved.name}")
+        }
+    }
+}
+
+private fun formatSavedAt(epochMilli: Long): String =
+    Instant.ofEpochMilli(epochMilli).atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("d MMM HH:mm"))
 
 @Composable
 private fun PaletteRow(

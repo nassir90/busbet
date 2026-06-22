@@ -56,6 +56,9 @@ class FavouritesStore(private val context: Context) {
         codes.mapNotNull { byCode[it] }
     }
 
+    /** Overwrites the whole list, e.g. when restoring from a config backup. */
+    suspend fun replaceAll(favourites: List<Favourite>) = update { favourites }
+
     private suspend fun update(transform: (List<Favourite>) -> List<Favourite>) {
         context.dataStore.edit { prefs ->
             val current = prefs[KEY]?.let { gson.fromJson<List<Favourite>>(it, type) } ?: emptyList()

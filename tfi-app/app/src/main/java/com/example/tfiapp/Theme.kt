@@ -238,6 +238,14 @@ class PaletteStore(private val context: Context) {
         }
     }
 
+    /** Overwrites the selection and custom palettes, e.g. when restoring from a config backup. */
+    suspend fun restore(selectedId: String, customPalettes: List<AppPalette>) {
+        context.dataStore.edit { prefs ->
+            prefs[SELECTED_KEY] = selectedId
+            prefs[CUSTOM_KEY] = paletteGson.toJson(customPalettes)
+        }
+    }
+
     /** One-shot read of the selected palette, for non-Compose consumers (widget, service). */
     suspend fun current(): AppPalette = resolvePalette(selectedId.first(), customPalettes.first())
 }
@@ -275,5 +283,14 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setBusDisplayThresholdMin(minutes: Int) {
         context.dataStore.edit { it[BUS_DISPLAY_THRESHOLD_KEY] = minutes }
+    }
+
+    /** Overwrites all settings, e.g. when restoring from a config backup. */
+    suspend fun restore(locationAware: Boolean, hideFarStops: Boolean, busDisplayThresholdMin: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[LOCATION_AWARE_KEY] = locationAware
+            prefs[HIDE_FAR_STOPS_KEY] = hideFarStops
+            prefs[BUS_DISPLAY_THRESHOLD_KEY] = busDisplayThresholdMin
+        }
     }
 }

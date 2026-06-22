@@ -35,6 +35,9 @@ class SearchHistoryStore(private val context: Context) {
 
     suspend fun clear() = update { emptyList() }
 
+    /** Overwrites the whole list, e.g. when restoring from a config backup. */
+    suspend fun replaceAll(entries: List<SearchHistoryEntry>) = update { entries }
+
     private suspend fun update(transform: (List<SearchHistoryEntry>) -> List<SearchHistoryEntry>) {
         context.dataStore.edit { prefs ->
             val current = prefs[HISTORY_KEY]?.let { gson.fromJson<List<SearchHistoryEntry>>(it, type) } ?: emptyList()
