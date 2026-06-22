@@ -1,6 +1,15 @@
 # tfi-app
 
-A minimal Android "Hello World" project.
+A thin Android client for live Dublin Bus / TFI departures, built with Kotlin and
+Jetpack Compose. It talks to the BusBet backend for stop boards, route views,
+realtime vehicle positions, scheduled notifications and a home-screen widget.
+
+## Screenshots
+
+| | | |
+|:-:|:-:|:-:|
+| <img src="../static/images/busbet/02-search-results.webp" width="240"><br>Search routes & stops | <img src="../static/images/busbet/03-route-view.webp" width="240"><br>Route view (both directions) | <img src="../static/images/busbet/04-search-history.webp" width="240"><br>Recent searches |
+| <img src="../static/images/busbet/05-stop-board.webp" width="240"><br>Live stop board + map | <img src="../static/images/busbet/06-settings-top.webp" width="240"><br>Themes & settings | <img src="../static/images/busbet/07-notifications.webp" width="240"><br>Scheduled notifications |
 
 ## Setup
 
