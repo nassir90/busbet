@@ -493,10 +493,16 @@ private fun FavouriteCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
                     Text(favourite.displayName, style = MaterialTheme.typography.titleMedium)
+                    if (!favourite.customName.isNullOrBlank()) {
+                        Text(
+                            favourite.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            if (favourite.customName.isNullOrBlank()) favourite.code
-                            else "${favourite.name} · ${favourite.code}",
+                            favourite.code,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
