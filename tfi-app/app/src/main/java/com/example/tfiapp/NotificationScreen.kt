@@ -52,8 +52,6 @@ class NotificationDraft {
     var routes    by mutableStateOf<List<String>>(emptyList())
     var enabled   by mutableStateOf(true)
 
-    fun prefill(code: String, name: String) { stopCode = code; stopName = name }
-
     fun loadFrom(w: NotificationWindow) {
         name = w.name; days = w.days; startMin = w.startMinute; endMin = w.endMinute
         stopCode = w.stopCode; stopName = w.stopName; routes = w.routes; enabled = w.enabled
@@ -62,10 +60,7 @@ class NotificationDraft {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationScreen(
-    prefill: Pair<String, String>? = null,
-    onPrefillConsumed: () -> Unit = {},
-) {
+fun NotificationScreen() {
     val context   = LocalContext.current
     val store     = remember { NotificationWindowStore(context) }
     val windows   by store.flow.collectAsState(initial = emptyList())
@@ -76,15 +71,6 @@ fun NotificationScreen(
     var editTarget  by remember { mutableStateOf<NotificationWindow?>(null) }
     var showCreate  by remember { mutableStateOf(false) }
     val createDraft = remember { NotificationDraft() }
-
-    // Open create sheet pre-filled when navigated from a stop's bell icon
-    LaunchedEffect(prefill) {
-        if (prefill != null) {
-            createDraft.prefill(prefill.first, prefill.second)
-            showCreate = true
-            onPrefillConsumed()
-        }
-    }
 
     val visibleDays = remember(viewMode, selectedDay) {
         if (viewMode == CalendarViewMode.WEEK) (1..7).toList() else listOf(selectedDay)

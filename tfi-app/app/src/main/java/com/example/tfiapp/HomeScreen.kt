@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -42,6 +43,7 @@ fun HomeScreen(
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
     onOpenSettings: () -> Unit,
+    onOpenNotifications: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
@@ -137,6 +139,13 @@ fun HomeScreen(
             actions = {
                 if (anyStale) StaleBadge()
                 TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
+                IconButton(onClick = onOpenNotifications) {
+                    Icon(
+                        Icons.Filled.Notifications,
+                        contentDescription = "Notifications",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
                 IconButton(onClick = onOpenSettings) {
                     Icon(
                         Icons.Filled.Menu,
