@@ -82,14 +82,11 @@ fun TripScreen(
 @Composable
 private fun TripStopsList(d: TripDetail, fromStopCode: String?, onOpenStop: (String) -> Unit) {
     val nowMins = remember { LocalTime.now().let { it.hour * 60 + it.minute } }
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(fromStopCode) {
-        if (fromStopCode != null) {
-            val idx = d.stops.indexOfFirst { it.stopCode == fromStopCode }
-            if (idx >= 0) listState.scrollToItem(idx)
-        }
+    val initialIndex = remember(fromStopCode) {
+        fromStopCode?.let { code -> d.stops.indexOfFirst { it.stopCode == code } }
+            ?.takeIf { it >= 0 } ?: 0
     }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
 
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
         items(d.stops, key = { it.stopSequence }) { stop ->
