@@ -36,6 +36,9 @@ class NotificationWindowStore(private val context: Context) {
 
     suspend fun delete(id: String) = update { it.filterNot { w -> w.id == id } }
 
+    /** Overwrites the whole list, e.g. when restoring from a config backup. */
+    suspend fun replaceAll(windows: List<NotificationWindow>) = update { windows }
+
     private suspend fun update(fn: (List<NotificationWindow>) -> List<NotificationWindow>) {
         context.dataStore.edit { prefs ->
             val cur = prefs[NW_KEY]?.let { nwGson.fromJson<List<NotificationWindow>>(it, nwType) } ?: emptyList()
