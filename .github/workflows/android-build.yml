@@ -3,8 +3,14 @@ name: Android Build
 on:
   push:
     branches: ["**"]        # build on every branch push
+    paths-ignore:           # ...except docs-only changes — nothing here is a build input
+      - "**.md"
+      - "static/**"
   pull_request:
     branches: ["master"]
+    paths-ignore:
+      - "**.md"
+      - "static/**"
   workflow_dispatch:        # allow manual runs from the Actions tab
 
 # Cancel an in-progress run if you push again to the same branch/PR
