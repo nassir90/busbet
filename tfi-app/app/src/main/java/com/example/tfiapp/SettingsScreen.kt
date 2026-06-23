@@ -45,6 +45,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val locationAware by settingsStore.locationAware.collectAsState(initial = false)
     val hideFarStops by settingsStore.hideFarStops.collectAsState(initial = false)
+    val farStopThresholdM by settingsStore.farStopThresholdM.collectAsState(initial = DEFAULT_FAR_STOP_THRESHOLD_M)
     val busDisplayThresholdMin by settingsStore.busDisplayThresholdMin.collectAsState(initial = DEFAULT_BUS_DISPLAY_THRESHOLD_MIN)
 
     val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
@@ -209,7 +210,7 @@ fun SettingsScreen(
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "Gray out and collapse favourites more than 5 km away.",
+                        "Gray out and collapse favourites more than %.1f km away.".format(farStopThresholdM / 1000f),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -218,6 +219,22 @@ fun SettingsScreen(
                     checked = hideFarStops && locationAware,
                     enabled = locationAware,
                     onCheckedChange = { enabled -> scope.launch { settingsStore.setHideFarStops(enabled) } },
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Slider(
+                    value = farStopThresholdM.toFloat(),
+                    onValueChange = { scope.launch { settingsStore.setFarStopThresholdM(it.toInt()) } },
+                    valueRange = 1000f..20000f,
+                    steps = 18,
+                    enabled = locationAware && hideFarStops,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "%.1f km".format(farStopThresholdM / 1000f),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.width(56.dp),
                 )
             }
 

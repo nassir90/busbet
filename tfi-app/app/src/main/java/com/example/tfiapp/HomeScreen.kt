@@ -52,6 +52,7 @@ fun HomeScreen(
     val history by historyStore.flow.collectAsState(initial = emptyList())
     val locationAware by settingsStore.locationAware.collectAsState(initial = false)
     val hideFarStops by settingsStore.hideFarStops.collectAsState(initial = false)
+    val farStopThresholdM by settingsStore.farStopThresholdM.collectAsState(initial = DEFAULT_FAR_STOP_THRESHOLD_M)
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
@@ -330,7 +331,7 @@ fun HomeScreen(
                                 if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000f)
                             }
                             val isFar = hideFarStops && distanceMeters != null &&
-                                distanceMeters > FAR_STOP_THRESHOLD_M
+                                distanceMeters > farStopThresholdM
                             FavouriteCard(
                                 favourite = fav,
                                 isDragging = isDragging,
