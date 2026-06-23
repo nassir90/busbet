@@ -253,9 +253,10 @@ class PaletteStore(private val context: Context) {
 private val LOCATION_AWARE_KEY = booleanPreferencesKey("location_aware")
 private val HIDE_FAR_STOPS_KEY = booleanPreferencesKey("hide_far_stops")
 private val BUS_DISPLAY_THRESHOLD_KEY = intPreferencesKey("bus_display_threshold_min")
+private val FAR_STOP_THRESHOLD_KEY = intPreferencesKey("far_stop_threshold_m")
 
-/** Favourites farther than this (metres) are dimmed + collapsed when hide-far is on. */
-const val FAR_STOP_THRESHOLD_M = 5000f
+/** Default: favourites farther than this (metres) are dimmed + collapsed when hide-far is on. */
+const val DEFAULT_FAR_STOP_THRESHOLD_M = 5000
 
 /** Default: only render a bus marker once it's due within this many minutes. */
 const val DEFAULT_BUS_DISPLAY_THRESHOLD_MIN = 60
@@ -277,6 +278,14 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { it[HIDE_FAR_STOPS_KEY] = enabled }
     }
 
+    val farStopThresholdM: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[FAR_STOP_THRESHOLD_KEY] ?: DEFAULT_FAR_STOP_THRESHOLD_M
+    }
+
+    suspend fun setFarStopThresholdM(metres: Int) {
+        context.dataStore.edit { it[FAR_STOP_THRESHOLD_KEY] = metres }
+    }
+
     val busDisplayThresholdMin: Flow<Int> = context.dataStore.data.map { prefs ->
         prefs[BUS_DISPLAY_THRESHOLD_KEY] ?: DEFAULT_BUS_DISPLAY_THRESHOLD_MIN
     }
@@ -286,11 +295,17 @@ class SettingsStore(private val context: Context) {
     }
 
     /** Overwrites all settings, e.g. when restoring from a config backup. */
-    suspend fun restore(locationAware: Boolean, hideFarStops: Boolean, busDisplayThresholdMin: Int) {
+    suspend fun restore(
+        locationAware: Boolean,
+        hideFarStops: Boolean,
+        busDisplayThresholdMin: Int,
+        farStopThresholdM: Int,
+    ) {
         context.dataStore.edit { prefs ->
             prefs[LOCATION_AWARE_KEY] = locationAware
             prefs[HIDE_FAR_STOPS_KEY] = hideFarStops
             prefs[BUS_DISPLAY_THRESHOLD_KEY] = busDisplayThresholdMin
+            prefs[FAR_STOP_THRESHOLD_KEY] = farStopThresholdM
         }
     }
 }

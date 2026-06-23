@@ -17,6 +17,7 @@ data class AppConfig(
     val locationAware: Boolean = false,
     val hideFarStops: Boolean = false,
     val busDisplayThresholdMin: Int = DEFAULT_BUS_DISPLAY_THRESHOLD_MIN,
+    val farStopThresholdM: Int = DEFAULT_FAR_STOP_THRESHOLD_M,
     val searchHistory: List<SearchHistoryEntry> = emptyList(),
     val notificationWindows: List<NotificationWindow> = emptyList(),
 )
@@ -39,6 +40,7 @@ class ConfigBackupStore(
         locationAware = settingsStore.locationAware.first(),
         hideFarStops = settingsStore.hideFarStops.first(),
         busDisplayThresholdMin = settingsStore.busDisplayThresholdMin.first(),
+        farStopThresholdM = settingsStore.farStopThresholdM.first(),
         searchHistory = searchHistoryStore.flow.first(),
         notificationWindows = notificationWindowStore.flow.first(),
     )
@@ -53,7 +55,7 @@ class ConfigBackupStore(
     suspend fun restore(config: AppConfig) {
         favouritesStore.replaceAll(config.favourites)
         paletteStore.restore(config.paletteSelectedId, config.customPalettes)
-        settingsStore.restore(config.locationAware, config.hideFarStops, config.busDisplayThresholdMin)
+        settingsStore.restore(config.locationAware, config.hideFarStops, config.busDisplayThresholdMin, config.farStopThresholdM)
         searchHistoryStore.replaceAll(config.searchHistory)
         notificationWindowStore.replaceAll(config.notificationWindows)
     }
