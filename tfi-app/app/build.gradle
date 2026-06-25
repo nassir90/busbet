@@ -3,6 +3,11 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Read secrets from local.properties (gitignored) so they're never committed.
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) localPropsFile.withInputStream { localProps.load(it) }
+
 android {
     namespace 'com.example.tfiapp'
     compileSdk 34
@@ -20,6 +25,10 @@ android {
         buildConfigField "String", "API_BASE_URL", "\"http://lab.uzoukwu.net/gtfsr-stop-times/\""
         // Stateful write API (arrival/cancellation reports).
         buildConfigField "String", "TENANT_API_BASE_URL", "\"http://lab.uzoukwu.net/tfi-tenant-api/\""
+
+        // Sentry DSN — set `sentry.dsn=...` in local.properties to enable crash/error
+        // reporting. Empty by default, which makes the Sentry SDK a no-op.
+        buildConfigField "String", "SENTRY_DSN", "\"${localProps.getProperty('sentry.dsn', '')}\""
     }
 
     buildTypes {
@@ -73,6 +82,8 @@ dependencies {
 
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
     implementation 'androidx.work:work-runtime-ktx:2.9.1'
+
+    implementation 'io.sentry:sentry-android:7.18.0'
 
     testImplementation 'junit:junit:4.13.2'
 }

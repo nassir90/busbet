@@ -149,13 +149,14 @@ object Api {
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
+        .addInterceptor(SentryErrorInterceptor())
         .build()
 
     private fun <T> build(baseUrl: String, api: Class<T>): T =
         Retrofit.Builder()
             .baseUrl(baseUrl)
             .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(SentryConverterFactory(GsonConverterFactory.create()))
             .build()
             .create(api)
 
