@@ -67,6 +67,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".BusWatchAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".StopWidgetReceiver"
             android:exported="true">
             <intent-filter>
