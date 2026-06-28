@@ -27,6 +27,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import com.example.tfiapp.server.DEFAULT_SERVER_PORT
+import com.example.tfiapp.server.LOOPBACK_HOST
+import com.example.tfiapp.server.OnDeviceServerService
+import com.example.tfiapp.server.ServerSettingsStore
+import com.example.tfiapp.server.isValidPort
+import com.example.tfiapp.server.lanIpv4
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
@@ -35,6 +43,7 @@ import java.time.format.DateTimeFormatter
 fun SettingsScreen(
     paletteStore: PaletteStore,
     settingsStore: SettingsStore,
+    serverSettingsStore: ServerSettingsStore,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -292,8 +301,108 @@ fun SettingsScreen(
                     Text("Import")
                 }
             }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            // ── On-device server ─────────────────────────────────────────────
+            ServerSection(serverSettingsStore)
+
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ServerSection(store: ServerSettingsStore) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val enabled by store.enabled.collectAsState(initial = false)
+    val bindLan by store.bindLan.collectAsState(initial = false)
+    val port by store.port.collectAsState(initial = DEFAULT_SERVER_PORT)
+
+    // Local editable text mirrors the persisted port; we only persist when it's a valid number.
+    var portText by remember(port) { mutableStateOf(port.toString()) }
+    val portValue = portText.toIntOrNull()
+    val portValid = portValue != null && isValidPort(portValue)
+
+    SectionHeader("On-device server")
+    Text(
+        "Expose this device's data to local tools via an MCP server (/mcp) and a REST API (/api). " +
+            "Runs in the background with a persistent notification while enabled.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Enable server", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Switch(
+            checked = enabled,
+            // Don't let the server start with an invalid port.
+            enabled = portValid || enabled,
+            onCheckedChange = { on ->
+                scope.launch {
+                    store.setEnabled(on)
+                    if (on) OnDeviceServerService.start(context) else OnDeviceServerService.stop(context)
+                }
+            },
+        )
+    }
+
+    Text("Bind to", style = MaterialTheme.typography.bodyMedium)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+        FilterChip(
+            selected = !bindLan,
+            onClick = { scope.launch { store.setBindLan(false) } },
+            label = { Text("Loopback only") },
+        )
+        FilterChip(
+            selected = bindLan,
+            onClick = { scope.launch { store.setBindLan(true) } },
+            label = { Text("LAN (all interfaces)") },
+        )
+    }
+    Text(
+        if (bindLan) "Reachable from other devices on your network — anything on the LAN can read and change your data (no authentication)."
+        else "Reachable only from this device (127.0.0.1).",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = portText,
+        onValueChange = { new ->
+            portText = new.filter { it.isDigit() }.take(5)
+            portText.toIntOrNull()?.let { if (isValidPort(it)) scope.launch { store.setPort(it) } }
+        },
+        label = { Text("Port") },
+        singleLine = true,
+        isError = !portValid,
+        supportingText = if (!portValid) {
+            { Text("Enter a port between 1024 and 65535") }
+        } else null,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    if (enabled) {
+        val host = if (bindLan) (lanIpv4() ?: "<this device's IP>") else LOOPBACK_HOST
+        val base = "http://$host:$port"
+        Spacer(Modifier.height(8.dp))
+        Text("Reachable at", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "$base/api  (REST)\n$base/mcp  (MCP)",
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

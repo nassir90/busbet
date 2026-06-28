@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
 // Read secrets from local.properties (gitignored) so they're never committed.
@@ -48,9 +49,8 @@ android {
         compose true
         buildConfig true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion '1.5.14'
-    }
+    // Compose compiler version is now governed by the org.jetbrains.kotlin.plugin.compose plugin
+    // (Kotlin 2.0+), so the old composeOptions { kotlinCompilerExtensionVersion } block is gone.
 }
 
 dependencies {
@@ -85,5 +85,17 @@ dependencies {
 
     implementation 'io.sentry:sentry-android:7.18.0'
 
+    // On-device MCP server + HTTP API. The MCP SDK pulls Ktor 3.2.3 transitively; we pin all Ktor
+    // artifacts to that exact version to avoid the known SSE binary-incompat NoSuchMethodError.
+    implementation 'io.modelcontextprotocol:kotlin-sdk-server:0.10.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0'
+    implementation 'io.ktor:ktor-server-core:3.2.3'
+    implementation 'io.ktor:ktor-server-cio:3.2.3'
+    implementation 'io.ktor:ktor-server-sse:3.2.3'
+    implementation 'io.ktor:ktor-server-content-negotiation:3.2.3'
+    implementation 'io.ktor:ktor-serialization-gson:3.2.3'
+
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2'
+    testImplementation 'io.ktor:ktor-server-test-host:3.2.3'
 }

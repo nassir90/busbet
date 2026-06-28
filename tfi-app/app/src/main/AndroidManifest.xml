@@ -49,6 +49,11 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <service
+            android:name=".server.OnDeviceServerService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

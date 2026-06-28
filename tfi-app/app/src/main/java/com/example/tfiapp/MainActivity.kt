@@ -71,6 +71,7 @@ sealed class Screen {
 fun App(paletteStore: PaletteStore, initialStop: String? = null) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
+    val serverSettingsStore = remember { com.example.tfiapp.server.ServerSettingsStore(context) }
     val timeController = remember { TimeController() }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val scope = rememberCoroutineScope()
@@ -134,6 +135,7 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
                 is Screen.Settings -> SettingsScreen(
                     paletteStore = paletteStore,
                     settingsStore = settingsStore,
+                    serverSettingsStore = serverSettingsStore,
                     onBack = { pop() },
                 )
                 is Screen.StopBoard -> StopScreen(
