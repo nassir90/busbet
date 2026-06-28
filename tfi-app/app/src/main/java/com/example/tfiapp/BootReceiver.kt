@@ -14,6 +14,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             NotificationScheduler.reschedule(context)
+            BusWatchScheduler.rescheduleAll(context)
 
             // Restart the on-device server if it was left enabled.
             val appContext = context.applicationContext

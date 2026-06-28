@@ -5,6 +5,8 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +17,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,6 +37,39 @@ fun ReportScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var submitting by remember { mutableStateOf(false) }
+    var watching by remember { mutableStateOf(false) }
+
+    LaunchedEffect(tripId, stopCode) {
+        watching = BusWatchStore(context).has(tripId, stopCode)
+    }
+
+    fun toggleWatch() {
+        scope.launch {
+            if (watching) {
+                BusWatchScheduler.cancel(context, tripId, stopCode)
+                watching = false
+                Toast.makeText(context, "Notification cancelled", Toast.LENGTH_SHORT).show()
+            } else {
+                val effective = estimatedDeparture ?: scheduledDeparture
+                val (h, m) = effective.split(":").map { it.toInt() }
+                val now = LocalDateTime.now()
+                var target = now.withHour(h).withMinute(m).withSecond(0).withNano(0)
+                if (target.isBefore(now.minusHours(12))) target = target.plusDays(1)
+                BusWatchScheduler.schedule(
+                    context,
+                    BusWatch(
+                        tripId = tripId,
+                        stopCode = stopCode,
+                        stopName = stopName,
+                        routeShortName = routeShortName,
+                        triggerAtMillis = target.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    ),
+                )
+                watching = true
+                Toast.makeText(context, "We'll notify you when it's due", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     fun submit(kind: String, actualTime: String?) {
         if (submitting) return
@@ -98,6 +135,15 @@ fun ReportScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { toggleWatch() }) {
+                        Icon(
+                            if (watching) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
+                            contentDescription = if (watching) "Cancel notification" else "Notify me when due",
                             tint = MaterialTheme.colorScheme.onPrimary,
                         )
                     }
