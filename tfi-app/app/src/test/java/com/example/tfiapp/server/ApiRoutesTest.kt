@@ -17,9 +17,6 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
-import io.ktor.serialization.gson.gson
-import io.ktor.server.application.install
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
@@ -40,7 +37,6 @@ class ApiRoutesTest {
             settings = FakeSettings(SettingsSnapshot(true, false, 30, 5000)),
         )
         application {
-            install(ContentNegotiation) { gson() }
             routing { route("/api") { apiRoutes(fake) } }
         }
         val body = client.get("/api/settings").bodyAsText()
@@ -52,7 +48,6 @@ class ApiRoutesTest {
     fun `PATCH settings forwards each provided field to the service`() = testApplication {
         val settings = FakeSettings(SettingsSnapshot(false, false, 10, 1000))
         application {
-            install(ContentNegotiation) { gson() }
             routing { route("/api") { apiRoutes(FakeServices(settings = settings)) } }
         }
         val resp = client.patch("/api/settings") {

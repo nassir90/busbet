@@ -1,7 +1,7 @@
 package com.example.tfiapp.server
 
 import com.example.tfiapp.service.AppServices
-import io.ktor.serialization.gson.gson
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
@@ -9,6 +9,7 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 
 /**
  * The single Ktor server that hosts both transports over the shared [AppServices]:
@@ -25,7 +26,9 @@ class AppServer(private val services: AppServices) {
     fun start(host: String, port: Int) {
         if (engine != null) return
         engine = embeddedServer(CIO, host = host, port = port) {
-            install(ContentNegotiation) { gson() }
+            // McpJson so the MCP transport's call.respond(JSONRPCMessage) serializes correctly.
+            // The /api routes don't rely on this — they serialize their Gson domain types by hand.
+            install(ContentNegotiation) { json(McpJson) }
             mountMcp(services)
             routing {
                 route("/api") { apiRoutes(services) }

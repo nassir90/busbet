@@ -2,15 +2,20 @@ package com.example.tfiapp.server
 
 import com.example.tfiapp.NotificationWindow
 import com.example.tfiapp.service.AppServices
+import com.google.gson.Gson
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.request.receive
-import io.ktor.server.response.respond
+import io.ktor.server.application.ApplicationCall
+import io.ktor.server.request.receiveText
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
+
+private val apiGson = Gson()
 
 /** Partial settings update — only the non-null fields are applied. */
 data class SettingsPatch(
@@ -31,62 +36,71 @@ data class AddFavouriteRequest(
 /**
  * The REST face over [AppServices]. Every handler is a thin adapter: read the request, call one
  * service method, respond with the result. No business logic lives here — it's the same surface
- * as the MCP tools, just spoken over HTTP. Serialization is handled by the Gson ContentNegotiation
- * installed on the server, so the existing domain data classes are used as-is.
+ * as the MCP tools, just spoken over HTTP.
+ *
+ * We serialize with Gson by hand (not Ktor ContentNegotiation): the server-wide ContentNegotiation
+ * is configured with kotlinx's McpJson for the MCP transport, and the app's domain classes use
+ * Gson `@SerializedName` annotations rather than `@Serializable`.
  */
 fun Route.apiRoutes(services: AppServices) {
     route("/settings") {
-        get { call.respond(services.settings.get()) }
+        get { call.respondJson(services.settings.get()) }
         patch {
-            val patch = call.receive<SettingsPatch>()
+            val patch = call.receiveJson(SettingsPatch::class.java)
             patch.locationAware?.let { services.settings.setLocationAware(it) }
             patch.hideFarStops?.let { services.settings.setHideFarStops(it) }
             patch.busDisplayThresholdMin?.let { services.settings.setBusDisplayThresholdMin(it) }
             patch.farStopThresholdM?.let { services.settings.setFarStopThresholdM(it) }
-            call.respond(services.settings.get())
+            call.respondJson(services.settings.get())
         }
     }
 
     route("/favourites") {
-        get { call.respond(services.favourites.list()) }
+        get { call.respondJson(services.favourites.list()) }
         post {
-            val req = call.receive<AddFavouriteRequest>()
+            val req = call.receiveJson(AddFavouriteRequest::class.java)
             services.favourites.add(req.code, req.name, req.lat, req.lon)
-            call.respond(HttpStatusCode.Created, services.favourites.list())
+            call.respondJson(services.favourites.list(), HttpStatusCode.Created)
         }
         delete("/{code}") {
             val code = call.parameters["code"]
-                ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "missing code"))
+                ?: return@delete call.respondJson(mapOf("error" to "missing code"), HttpStatusCode.BadRequest)
             services.favourites.remove(code)
-            call.respond(services.favourites.list())
+            call.respondJson(services.favourites.list())
         }
     }
 
     route("/notification-windows") {
-        get { call.respond(services.notificationWindows.list()) }
+        get { call.respondJson(services.notificationWindows.list()) }
         post {
-            val window = call.receive<NotificationWindow>()
+            val window = call.receiveJson(NotificationWindow::class.java)
             services.notificationWindows.save(window)
-            call.respond(HttpStatusCode.Created, services.notificationWindows.list())
+            call.respondJson(services.notificationWindows.list(), HttpStatusCode.Created)
         }
         delete("/{id}") {
             val id = call.parameters["id"]
-                ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "missing id"))
+                ?: return@delete call.respondJson(mapOf("error" to "missing id"), HttpStatusCode.BadRequest)
             services.notificationWindows.delete(id)
-            call.respond(services.notificationWindows.list())
+            call.respondJson(services.notificationWindows.list())
         }
     }
 
     get("/stops") {
         val q = call.parameters["q"]
-            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "missing q"))
-        call.respond(services.transit.searchStops(q))
+            ?: return@get call.respondJson(mapOf("error" to "missing q"), HttpStatusCode.BadRequest)
+        call.respondJson(services.transit.searchStops(q))
     }
 
     get("/departures/{code}") {
         val code = call.parameters["code"]
-            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "missing code"))
+            ?: return@get call.respondJson(mapOf("error" to "missing code"), HttpStatusCode.BadRequest)
         val time = call.parameters["time"]?.toLongOrNull()
-        call.respond(services.transit.departures(code, time))
+        call.respondJson(services.transit.departures(code, time))
     }
 }
+
+private suspend fun ApplicationCall.respondJson(value: Any?, status: HttpStatusCode = HttpStatusCode.OK) =
+    respondText(apiGson.toJson(value), ContentType.Application.Json, status)
+
+private suspend fun <T> ApplicationCall.receiveJson(type: Class<T>): T =
+    apiGson.fromJson(receiveText(), type)
