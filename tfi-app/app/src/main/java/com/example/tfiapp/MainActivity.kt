@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 
 /** A request (from a home-screen widget tap) to jump straight to a stop's board. */
-private data class WidgetStopRequest(val stopCode: String, val seq: Int)
+data class WidgetStopRequest(val stopCode: String, val seq: Int)
 
 class MainActivity : ComponentActivity() {
     private var widgetRequestSeq = 0
