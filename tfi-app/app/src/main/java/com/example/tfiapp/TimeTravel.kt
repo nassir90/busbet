@@ -2,12 +2,20 @@ package com.example.tfiapp
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.exponentialDecay
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -35,6 +43,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlinx.coroutines.launch
 
 /**
  * Shared height for top-bar pills (the [TimeTravelChip] "now"/offset indicator and the
@@ -334,13 +343,41 @@ private fun PickerCell(label: String, value: String, onClick: () -> Unit, modifi
  * A vertical drum you drag to spin, like a cylinder on a rod. Each detent of vertical
  * travel commits one step ([onStep], +1 when dragged up). The centre value is bold and the
  * neighbours fade toward transparency above and below.
+ *
+ * Flicking carries momentum: [fling] runs the decay physics and [residual] mirrors its
+ * frame-by-frame motion (consuming detents as it crosses them) so the digits stay in
+ * lockstep with the animation instead of jumping straight to the rest position. Whatever
+ * fractional offset is left once the fling dies out eases to dead-centre instead of
+ * snapping there.
  */
 @Composable
 private fun Cylinder(label: String, textAt: (Int) -> String, onStep: (Int) -> Unit) {
     val density = LocalDensity.current
     val stepPx = with(density) { 26.dp.toPx() }
-    var residual by remember { mutableStateOf(0f) }
+    val residual = remember { Animatable(0f) }
+    val fling = remember { Animatable(0f) }
     val onFace = MaterialTheme.colorScheme.onSurface
+    val scope = rememberCoroutineScope()
+
+    fun consumeSteps(raw: Float): Float {
+        var r = raw
+        while (r <= -stepPx) { onStep(1); r += stepPx }
+        while (r >= stepPx) { onStep(-1); r -= stepPx }
+        return r
+    }
+
+    LaunchedEffect(fling) {
+        var prev = 0f
+        snapshotFlow { fling.value }.collect { v ->
+            val delta = v - prev
+            prev = v
+            residual.snapTo(consumeSteps(residual.value + delta))
+        }
+    }
+
+    val draggableState = rememberDraggableState { delta ->
+        scope.launch { residual.snapTo(consumeSteps(residual.value + delta)) }
+    }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -350,17 +387,16 @@ private fun Cylinder(label: String, textAt: (Int) -> String, onStep: (Int) -> Un
                 .width(56.dp)
                 .height(78.dp)
                 .clipToBounds()
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onDragEnd = { residual = 0f },
-                        onDragCancel = { residual = 0f },
-                    ) { change, dy ->
-                        change.consume()
-                        residual += dy
-                        while (residual <= -stepPx) { onStep(1); residual += stepPx }
-                        while (residual >= stepPx) { onStep(-1); residual -= stepPx }
-                    }
-                },
+                .draggable(
+                    state = draggableState,
+                    orientation = Orientation.Vertical,
+                    onDragStarted = { fling.stop() },
+                    onDragStopped = { velocity ->
+                        fling.snapTo(0f)
+                        fling.animateDecay(velocity, exponentialDecay(frictionMultiplier = 6f))
+                        residual.animateTo(0f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
+                    },
+                ),
             contentAlignment = Alignment.Center,
         ) {
             for (k in -2..2) {
@@ -372,7 +408,7 @@ private fun Cylinder(label: String, textAt: (Int) -> String, onStep: (Int) -> Un
                     color = onFace.copy(alpha = alpha),
                     maxLines = 1,
                     softWrap = false,
-                    modifier = Modifier.offset { IntOffset(0, (k * stepPx + residual).roundToInt()) },
+                    modifier = Modifier.offset { IntOffset(0, (k * stepPx + residual.value).roundToInt()) },
                 )
             }
         }
