@@ -1,5 +1,6 @@
 package com.example.tfiapp
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -15,17 +16,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 
+/** A request (from a home-screen widget tap) to jump straight to a stop's board. */
+private data class WidgetStopRequest(val stopCode: String, val seq: Int)
+
 class MainActivity : ComponentActivity() {
+    private var widgetRequestSeq = 0
+    private val widgetStopRequest = mutableStateOf<WidgetStopRequest?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Draw edge-to-edge with transparent bars and light (white) icons so the
@@ -34,7 +43,7 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
-        val initialStop = intent.getStringExtra("stopCode")
+        captureWidgetStop(intent)
         setContent {
             val context = LocalContext.current
             val paletteStore = remember { PaletteStore(context) }
@@ -44,10 +53,25 @@ class MainActivity : ComponentActivity() {
 
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    App(paletteStore = paletteStore, initialStop = initialStop)
+                    App(paletteStore = paletteStore, widgetStopRequest = widgetStopRequest)
                 }
             }
         }
+    }
+
+    // android:launchMode="singleTop" means a widget tap while the app is already on top
+    // reuses this instance via onNewIntent rather than recreating it, so without this
+    // override the new stopCode extra would be silently dropped and the tap would just
+    // resume whatever screen was already showing.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureWidgetStop(intent)
+    }
+
+    private fun captureWidgetStop(intent: Intent) {
+        val code = intent.getStringExtra("stopCode") ?: return
+        widgetStopRequest.value = WidgetStopRequest(code, widgetRequestSeq++)
     }
 }
 
@@ -68,7 +92,7 @@ sealed class Screen {
 }
 
 @Composable
-fun App(paletteStore: PaletteStore, initialStop: String? = null) {
+fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
     val serverSettingsStore = remember { com.example.tfiapp.server.ServerSettingsStore(context) }
@@ -76,12 +100,18 @@ fun App(paletteStore: PaletteStore, initialStop: String? = null) {
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val scope = rememberCoroutineScope()
 
-    val stack = remember {
-        mutableStateListOf<Screen>().apply {
-            if (initialStop != null) add(Screen.StopBoard(initialStop))
-        }
-    }
+    val stack = remember { mutableStateListOf<Screen>() }
     val pop = { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) else Unit }
+
+    // A widget tap should always land on that stop's board, replacing whatever was on
+    // screen — including re-firing when the same stop is tapped twice in a row, hence
+    // the incrementing seq making each request distinct for LaunchedEffect's key.
+    LaunchedEffect(widgetStopRequest.value) {
+        val req = widgetStopRequest.value ?: return@LaunchedEffect
+        stack.clear()
+        stack.add(Screen.StopBoard(req.stopCode))
+        if (pagerState.currentPage != 0) pagerState.scrollToPage(0)
+    }
 
     BackHandler(enabled = stack.isNotEmpty()) { pop() }
     BackHandler(enabled = stack.isEmpty() && pagerState.currentPage == 1) {
