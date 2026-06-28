@@ -27,14 +27,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import com.example.tfiapp.server.BindMode
 import com.example.tfiapp.server.DEFAULT_SERVER_PORT
-import com.example.tfiapp.server.LOOPBACK_HOST
 import com.example.tfiapp.server.OnDeviceServerService
 import com.example.tfiapp.server.ServerSettingsStore
+import com.example.tfiapp.server.bindHost
 import com.example.tfiapp.server.isValidPort
-import com.example.tfiapp.server.lanIpv4
+import com.example.tfiapp.server.reachableHost
+import com.example.tfiapp.server.tailscaleIpv4
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
@@ -314,20 +318,24 @@ fun SettingsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ServerSection(store: ServerSettingsStore) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     val enabled by store.enabled.collectAsState(initial = false)
-    val bindLan by store.bindLan.collectAsState(initial = false)
+    val bindMode by store.bindMode.collectAsState(initial = BindMode.LOOPBACK)
     val port by store.port.collectAsState(initial = DEFAULT_SERVER_PORT)
 
     // Local editable text mirrors the persisted port; we only persist when it's a valid number.
     var portText by remember(port) { mutableStateOf(port.toString()) }
     val portValue = portText.toIntOrNull()
     val portValid = portValue != null && isValidPort(portValue)
+
+    // Tailscale-only bind needs the device to actually be on a tailnet.
+    val tailscaleIp = tailscaleIpv4()
+    val canBind = bindHost(bindMode) != null
 
     SectionHeader("On-device server")
     Text(
@@ -344,8 +352,8 @@ private fun ServerSection(store: ServerSettingsStore) {
         Text("Enable server", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Switch(
             checked = enabled,
-            // Don't let the server start with an invalid port.
-            enabled = portValid || enabled,
+            // Don't let the server start with an invalid port or an unsatisfiable bind mode.
+            enabled = (portValid && canBind) || enabled,
             onCheckedChange = { on ->
                 scope.launch {
                     store.setEnabled(on)
@@ -356,23 +364,35 @@ private fun ServerSection(store: ServerSettingsStore) {
     }
 
     Text("Bind to", style = MaterialTheme.typography.bodyMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
         FilterChip(
-            selected = !bindLan,
-            onClick = { scope.launch { store.setBindLan(false) } },
-            label = { Text("Loopback only") },
+            selected = bindMode == BindMode.LOOPBACK,
+            onClick = { scope.launch { store.setBindMode(BindMode.LOOPBACK) } },
+            label = { Text("Loopback") },
         )
         FilterChip(
-            selected = bindLan,
-            onClick = { scope.launch { store.setBindLan(true) } },
-            label = { Text("LAN (all interfaces)") },
+            selected = bindMode == BindMode.TAILSCALE,
+            onClick = { scope.launch { store.setBindMode(BindMode.TAILSCALE) } },
+            // Still selectable when offline so the choice sticks; the enable switch guards startup.
+            label = { Text("Tailscale") },
+        )
+        FilterChip(
+            selected = bindMode == BindMode.ALL,
+            onClick = { scope.launch { store.setBindMode(BindMode.ALL) } },
+            label = { Text("All interfaces") },
         )
     }
     Text(
-        if (bindLan) "Reachable from other devices on your network — anything on the LAN can read and change your data (no authentication)."
-        else "Reachable only from this device (127.0.0.1).",
+        when (bindMode) {
+            BindMode.LOOPBACK -> "Reachable only from this device (127.0.0.1)."
+            BindMode.TAILSCALE ->
+                if (tailscaleIp != null) "Reachable only over your tailnet ($tailscaleIp) — not on the local Wi-Fi/LAN. No authentication."
+                else "Tailscale isn't connected on this device, so there's no address to bind to."
+            BindMode.ALL -> "Reachable on every interface (Wi-Fi/LAN, cellular, tailnet). Anyone who can reach the device can read and change your data — no authentication."
+        },
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (bindMode == BindMode.TAILSCALE && tailscaleIp == null) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
     Spacer(Modifier.height(8.dp))
@@ -393,7 +413,7 @@ private fun ServerSection(store: ServerSettingsStore) {
     )
 
     if (enabled) {
-        val host = if (bindLan) (lanIpv4() ?: "<this device's IP>") else LOOPBACK_HOST
+        val host = reachableHost(bindMode) ?: "<this device's IP>"
         val base = "http://$host:$port"
         Spacer(Modifier.height(8.dp))
         Text("Reachable at", style = MaterialTheme.typography.bodyMedium)

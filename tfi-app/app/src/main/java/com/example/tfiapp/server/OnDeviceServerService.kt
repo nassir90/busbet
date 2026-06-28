@@ -41,16 +41,25 @@ class OnDeviceServerService : Service() {
         if (appServer == null) {
             scope.launch {
                 val store = ServerSettingsStore(applicationContext)
-                val bindLan = store.bindLan.first()
+                val mode = store.bindMode.first()
                 val port = store.port.first()
+                val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+
+                val host = bindHost(mode)
+                if (host == null) {
+                    // e.g. TAILSCALE selected but the tailnet isn't up — can't bind, so stand down.
+                    nm.notify(FOREGROUND_NOTIF_ID, buildNotification("Can't start: ${mode.name.lowercase()} address unavailable"))
+                    stopSelf()
+                    return@launch
+                }
+
                 val server = AppServer(DefaultAppServices(applicationContext))
-                server.start(bindHost(bindLan), port)
+                server.start(host, port)
                 appServer = server
 
                 // Update the notification to show the reachable base URL.
-                val host = if (bindLan) (lanIpv4() ?: "<this device's IP>") else LOOPBACK_HOST
-                val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                nm.notify(FOREGROUND_NOTIF_ID, buildNotification("http://$host:$port  (API /api · MCP /mcp)"))
+                val shownHost = reachableHost(mode) ?: host
+                nm.notify(FOREGROUND_NOTIF_ID, buildNotification("http://$shownHost:$port  (API /api · MCP /mcp)"))
             }
         }
         return START_STICKY
