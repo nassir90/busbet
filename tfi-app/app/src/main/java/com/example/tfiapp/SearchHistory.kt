@@ -35,6 +35,11 @@ class SearchHistoryStore(private val context: Context) {
 
     suspend fun clear() = update { emptyList() }
 
+    /** Removes a single entry, e.g. when dismissed from the history suggestions. */
+    suspend fun remove(id: String, isRoute: Boolean) = update { current ->
+        current.filterNot { it.id == id && it.isRoute == isRoute }
+    }
+
     /** Overwrites the whole list, e.g. when restoring from a config backup. */
     suspend fun replaceAll(entries: List<SearchHistoryEntry>) = update { entries }
 

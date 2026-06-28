@@ -33,6 +33,8 @@ import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
+private const val MAX_HISTORY_SUGGESTIONS = 4
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -206,9 +208,42 @@ fun HomeScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
-            if (routeResults.isNotEmpty() || stopResults.isNotEmpty()) {
+            // History entries matching the in-progress query, clock icon first (YouTube-style),
+            // capped at 4 even if more match. Live results are filtered server-side already.
+            val matchingHistory = remember(history, query) {
+                if (query.isEmpty()) emptyList()
+                else history.filter { it.label.contains(query, ignoreCase = true) }.take(MAX_HISTORY_SUGGESTIONS)
+            }
+            val showDropdown = searchFocused && query.isNotEmpty() &&
+                (matchingHistory.isNotEmpty() || routeResults.isNotEmpty() || stopResults.isNotEmpty())
+
+            if (showDropdown) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                        if (matchingHistory.isNotEmpty()) {
+                            items(matchingHistory, key = { "history:${it.isRoute}:${it.id}" }) { h ->
+                                ListItem(
+                                    leadingContent = {
+                                        Icon(Icons.Filled.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    },
+                                    headlineContent = { Text(h.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    trailingContent = {
+                                        IconButton(onClick = { scope.launch { historyStore.remove(h.id, h.isRoute) } }) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Remove from history")
+                                        }
+                                    },
+                                    modifier = Modifier.clickable {
+                                        scope.launch { historyStore.record(h) }
+                                        if (h.isRoute && h.routeShortName != null && h.directionId != null) {
+                                            onOpenRoute(h.routeShortName, h.directionId)
+                                        } else {
+                                            onOpenStop(h.id)
+                                        }
+                                    },
+                                )
+                                HorizontalDivider()
+                            }
+                        }
                         if (routeResults.isNotEmpty()) {
                             item { SectionLabel("Routes") }
                             items(routeResults) { r ->
@@ -252,39 +287,6 @@ fun HomeScreen(
                                 )
                                 HorizontalDivider()
                             }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-            } else if (searchFocused && query.isEmpty() && history.isNotEmpty()) {
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
-                        item {
-                            Row(
-                                Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                SectionLabel("Recent searches")
-                                TextButton(onClick = { scope.launch { historyStore.clear() } }) { Text("Clear") }
-                            }
-                        }
-                        items(history, key = { "${it.isRoute}:${it.id}" }) { h ->
-                            ListItem(
-                                leadingContent = {
-                                    Icon(Icons.Filled.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                },
-                                headlineContent = { Text(h.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                modifier = Modifier.clickable {
-                                    scope.launch { historyStore.record(h) }
-                                    if (h.isRoute && h.routeShortName != null && h.directionId != null) {
-                                        onOpenRoute(h.routeShortName, h.directionId)
-                                    } else {
-                                        onOpenStop(h.id)
-                                    }
-                                },
-                            )
-                            HorizontalDivider()
                         }
                     }
                 }
