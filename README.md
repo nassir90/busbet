@@ -1,3 +1,5 @@
+> **DISCLAIMER:** While I have put significant time into this and wouldn't consider it entirely slop, I have not looked at any of the code and cannot vouch for its quality. Only process this repo with your agent unless you want to waste your time.
+
 # BusBet
 
 A Dublin Bus / TFI live-departures stack: realtime stop boards built on the
