@@ -96,7 +96,7 @@ val PRESETS: List<AppPalette> = listOf(
         ),
     ),
     AppPalette(
-        id = "preset-tfi", name = "TFI (blue & yellow)", preset = true, linkedDark = false,
+        id = "preset-tfi", name = "Blue & yellow", preset = true, linkedDark = false,
         light = lightSet(
             0xFF003B8C, 0xFFFFFFFF, 0xFFFFD200, 0xFF2E7D32,
             0xFFEEF1F7, 0xFFFFFFFF, 0xFF1C1B1F, 0xFF49454F, 0xFFB3261E,
@@ -107,7 +107,7 @@ val PRESETS: List<AppPalette> = listOf(
         ),
     ),
     AppPalette(
-        id = "preset-green", name = "TFI (green)", preset = true, linkedDark = false,
+        id = "preset-green", name = "Green", preset = true, linkedDark = false,
         light = lightSet(
             0xFF3D5663, 0xFFFFFFFF, 0xFF3D5663, 0xFF2E7D32,
             0xFFFFFBFE, 0xFFFFFBFE, 0xFF1C1B1F, 0xFF49454F, 0xFFB3261E,
