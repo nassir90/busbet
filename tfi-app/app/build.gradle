@@ -22,10 +22,8 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-        // Edit these to point at your hosts. Trailing slash required.
-        buildConfigField "String", "API_BASE_URL", "\"http://lab.uzoukwu.net/gtfsr-stop-times/\""
-        // Stateful write API (arrival/cancellation reports).
-        buildConfigField "String", "TENANT_API_BASE_URL", "\"http://lab.uzoukwu.net/tfi-tenant-api/\""
+        // Backend URLs are no longer build constants — they're runtime config, editable from
+        // Settings without a rebuild. See BackendConfig.kt (DEFAULT_BACKEND_ROOT) for the default.
 
         // Sentry DSN — set `sentry.dsn=...` in local.properties to enable crash/error
         // reporting. Empty by default, which makes the Sentry SDK a no-op.

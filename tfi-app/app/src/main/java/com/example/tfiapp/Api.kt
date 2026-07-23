@@ -160,9 +160,35 @@ object Api {
             .build()
             .create(api)
 
+    // Retrofit clients are rebuilt whenever the configured URL changes, rather than being pinned
+    // for the process lifetime. `by lazy` would resolve once and then quietly keep talking to the
+    // old backend after the user edited it in Settings. The OkHttp client is deliberately shared
+    // across rebuilds so the connection pool and interceptors survive a repoint.
+    @Volatile private var gtfsUrl: String? = null
+    @Volatile private var gtfsApi: GtfsApi? = null
+
+    @Volatile private var tenantUrl: String? = null
+    @Volatile private var tenantApi: TenantApi? = null
+
     /** Read-only GTFS proxy (gtfsr-stop-times). */
-    val service: GtfsApi by lazy { build(BuildConfig.API_BASE_URL, GtfsApi::class.java) }
+    val service: GtfsApi
+        get() {
+            val url = BackendConfigHolder.current.urlFor(BackendService.GTFS)
+            gtfsApi?.let { if (url == gtfsUrl) return it }
+            return synchronized(this) {
+                gtfsApi?.let { if (url == gtfsUrl) return@synchronized it }
+                build(url, GtfsApi::class.java).also { gtfsApi = it; gtfsUrl = url }
+            }
+        }
 
     /** Stateful write API (tfi-tenant-api). */
-    val tenant: TenantApi by lazy { build(BuildConfig.TENANT_API_BASE_URL, TenantApi::class.java) }
+    val tenant: TenantApi
+        get() {
+            val url = BackendConfigHolder.current.urlFor(BackendService.TENANT)
+            tenantApi?.let { if (url == tenantUrl) return it }
+            return synchronized(this) {
+                tenantApi?.let { if (url == tenantUrl) return@synchronized it }
+                build(url, TenantApi::class.java).also { tenantApi = it; tenantUrl = url }
+            }
+        }
 }

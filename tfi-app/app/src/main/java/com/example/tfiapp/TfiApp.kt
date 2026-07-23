@@ -15,6 +15,10 @@ class TfiApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // Must run before anything touches Api — widgets, workers and the on-device server all
+        // reach it without MainActivity ever having run.
+        BackendConfigHolder.init(this)
+
         SentryAndroid.init(this) { options ->
             options.dsn = BuildConfig.SENTRY_DSN
             options.environment = if (BuildConfig.DEBUG) "debug" else "production"

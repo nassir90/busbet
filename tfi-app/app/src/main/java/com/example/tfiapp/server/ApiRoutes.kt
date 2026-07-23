@@ -25,6 +25,13 @@ data class SettingsPatch(
     val farStopThresholdM: Int? = null,
 )
 
+/** Partial backend-endpoint update. `overrides` is keyed by [com.example.tfiapp.BackendService] name. */
+data class BackendConfigPatch(
+    val root: String? = null,
+    val deriveFromRoot: Boolean? = null,
+    val overrides: Map<String, String>? = null,
+)
+
 /** Body for adding a favourite stop. */
 data class AddFavouriteRequest(
     val code: String,
@@ -43,6 +50,19 @@ data class AddFavouriteRequest(
  * Gson `@SerializedName` annotations rather than `@Serializable`.
  */
 fun Route.apiRoutes(services: AppServices) {
+    route("/backend-config") {
+        get { call.respondJson(services.backend.get()) }
+        patch {
+            val patch = call.receiveJson(BackendConfigPatch::class.java)
+            // Validation lives in the service; a bad URL surfaces as 400 rather than silently
+            // repointing the app at something unreachable.
+            patch.root?.let { services.backend.setRoot(it) }
+            patch.deriveFromRoot?.let { services.backend.setDeriveFromRoot(it) }
+            patch.overrides?.forEach { (service, url) -> services.backend.setOverride(service, url) }
+            call.respondJson(services.backend.get())
+        }
+    }
+
     route("/settings") {
         get { call.respondJson(services.settings.get()) }
         patch {

@@ -67,6 +67,37 @@ private fun buildMcpServer(services: AppServices): Server {
     }
 
     server.addTool(
+        name = "get_backend_config",
+        description = "Get which backend deployment the app talks to: the root URL, whether service " +
+            "URLs are derived from it, the resolved URL per service, and which are unencrypted http.",
+    ) { _ -> json(services.backend.get()) }
+
+    server.addTool(
+        name = "set_backend_config",
+        description = "Repoint the app at a different backend. Takes effect on the next request, no " +
+            "restart. Only the fields you provide are changed; returns the new configuration.",
+        inputSchema = schema(
+            "root" to prop("string", "Root URL, e.g. https://pet.uzoukwu.net — services resolve to <root>/<slug>/"),
+            "deriveFromRoot" to prop("boolean", "Derive every service URL from the root"),
+            "service" to prop("string", "With 'url': which service to override (GTFS or TENANT)"),
+            "url" to prop("string", "With 'service': that service's base URL, used when deriveFromRoot is false"),
+        ),
+    ) { req ->
+        val args = req.arguments
+        args.str("root")?.let { services.backend.setRoot(it) }
+        args.bool("deriveFromRoot")?.let { services.backend.setDeriveFromRoot(it) }
+        val service = args.str("service")
+        val url = args.str("url")
+        if (service != null || url != null) {
+            if (service == null || url == null) {
+                return@addTool error("'service' and 'url' must be given together")
+            }
+            services.backend.setOverride(service, url)
+        }
+        json(services.backend.get())
+    }
+
+    server.addTool(
         name = "list_favourites",
         description = "List the user's favourite stops.",
     ) { _ -> json(services.favourites.list()) }

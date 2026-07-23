@@ -96,6 +96,7 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
     val serverSettingsStore = remember { com.example.tfiapp.server.ServerSettingsStore(context) }
+    val backendConfigStore = remember { BackendConfigStore(context) }
     val timeController = remember { TimeController() }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val scope = rememberCoroutineScope()
@@ -166,6 +167,7 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
                     paletteStore = paletteStore,
                     settingsStore = settingsStore,
                     serverSettingsStore = serverSettingsStore,
+                    backendConfigStore = backendConfigStore,
                     onBack = { pop() },
                 )
                 is Screen.StopBoard -> StopScreen(

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ fun SettingsScreen(
     paletteStore: PaletteStore,
     settingsStore: SettingsStore,
     serverSettingsStore: ServerSettingsStore,
+    backendConfigStore: BackendConfigStore,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -312,6 +314,13 @@ fun SettingsScreen(
 
             // ── On-device server ─────────────────────────────────────────────
             ServerSection(serverSettingsStore)
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            // ── Backend configuration ────────────────────────────────────────
+            BackendSection(backendConfigStore)
 
             Spacer(Modifier.height(24.dp))
         }
@@ -702,6 +711,119 @@ private fun ChannelSlider(label: String, value: Float, tint: Color, onChange: (F
 }
 
 private fun hexOf(c: Int): String = "#%06X".format(c and 0xFFFFFF)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BackendSection(store: BackendConfigStore) {
+    val scope = rememberCoroutineScope()
+    val config by store.config.collectAsState(initial = BackendConfig())
+
+    // Local editable mirror; persisted only once the text is a usable base URL, so a half-typed
+    // root can't repoint the app at nothing mid-keystroke.
+    var rootText by remember(config.root) { mutableStateOf(config.root) }
+    val rootValid = isValidBaseUrl(rootText)
+
+    SectionHeader("Backend configuration")
+
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = rootText,
+        onValueChange = { new ->
+            rootText = new.trim()
+            if (isValidBaseUrl(rootText)) scope.launch { store.setRoot(rootText) }
+        },
+        label = { Text("Root URL") },
+        placeholder = { Text(DEFAULT_BACKEND_ROOT) },
+        singleLine = true,
+        isError = !rootValid,
+        supportingText = {
+            Text(if (rootValid) "Services are addressed as <root>/<service>/" else "Enter an absolute http:// or https:// URL")
+        },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Derive other services from root",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Checkbox(
+            checked = config.deriveFromRoot,
+            onCheckedChange = { on -> scope.launch { store.setDeriveFromRoot(on) } },
+        )
+    }
+
+    if (config.deriveFromRoot) {
+        // Show what the root actually resolves to, so a misconfiguration is visible here rather
+        // than only as a failed request later.
+        BackendService.entries.forEach { service ->
+            ResolvedUrlRow(service.label, config.urlFor(service))
+        }
+    } else {
+        BackendService.entries.forEach { service ->
+            var text by remember(service, config.overrides[service]) {
+                mutableStateOf(config.overrides[service] ?: deriveUrl(config.root, service))
+            }
+            val valid = isValidBaseUrl(text)
+            OutlinedTextField(
+                value = text,
+                onValueChange = { new ->
+                    text = new.trim()
+                    if (isValidBaseUrl(text)) scope.launch { store.setOverride(service, text) }
+                },
+                label = { Text(service.label) },
+                singleLine = true,
+                isError = !valid,
+                supportingText = if (!valid) {
+                    { Text("Enter an absolute http:// or https:// URL") }
+                } else null,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+        }
+    }
+
+    // Cleartext warning. usesCleartextTraffic is a manifest flag and can't be toggled at runtime,
+    // so http backends stay permitted (LAN and tailnet deployments need them) and we flag the risk
+    // instead of silently allowing it.
+    val cleartext = config.cleartextServices()
+    if (cleartext.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = "Insecure connection",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Unencrypted (http) — ${cleartext.joinToString { it.label }}. " +
+                    "Traffic can be read and modified in transit. Fine on a tailnet or LAN; use https over the internet.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ResolvedUrlRow(label: String, url: String) {
+    Column(Modifier.padding(bottom = 6.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            url,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
 
 @Composable
 private fun SectionHeader(text: String) {

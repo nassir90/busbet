@@ -2,6 +2,9 @@ package com.example.tfiapp.service
 
 import android.content.Context
 import com.example.tfiapp.Api
+import com.example.tfiapp.BackendConfigStore
+import com.example.tfiapp.BackendService
+import com.example.tfiapp.isValidBaseUrl
 import com.example.tfiapp.DeparturesResponse
 import com.example.tfiapp.Favourite
 import com.example.tfiapp.FavouritesStore
@@ -55,12 +58,35 @@ interface TransitQueryService {
     suspend fun departures(stopCode: String, time: Long? = null): DeparturesResponse
 }
 
+/** Where the app points its backends, and what each service currently resolves to. */
+data class BackendConfigSnapshot(
+    val root: String,
+    val deriveFromRoot: Boolean,
+    /** Service name (`GTFS`, `TENANT`) to the base URL actually in use right now. */
+    val resolved: Map<String, String>,
+    /** Names of services currently reached over plain http. */
+    val cleartext: List<String>,
+)
+
+/**
+ * Backend endpoint configuration. Lives behind the services layer on purpose: [TransitQueryService]
+ * and everything else reach the backends through [Api], so resolving URLs here means the MCP tools
+ * and the REST routes inherit one implementation instead of growing two that drift.
+ */
+interface BackendConfigService {
+    suspend fun get(): BackendConfigSnapshot
+    suspend fun setRoot(root: String)
+    suspend fun setDeriveFromRoot(derive: Boolean)
+    suspend fun setOverride(service: String, url: String)
+}
+
 /** Everything the transports are allowed to reach. Inject this; don't reach past it. */
 interface AppServices {
     val settings: SettingsService
     val favourites: FavouritesService
     val notificationWindows: NotificationWindowService
     val transit: TransitQueryService
+    val backend: BackendConfigService
 }
 
 // --- Default implementations: thin wrappers over the existing stores / Api ------------------
@@ -99,6 +125,36 @@ private class DefaultTransitQueryService : TransitQueryService {
         Api.service.departures(stopCode, time)
 }
 
+private class DefaultBackendConfigService(
+    private val store: BackendConfigStore,
+) : BackendConfigService {
+    override suspend fun get(): BackendConfigSnapshot {
+        val config = store.config.first()
+        return BackendConfigSnapshot(
+            root = config.root,
+            deriveFromRoot = config.deriveFromRoot,
+            resolved = BackendService.entries.associate { it.name to config.urlFor(it) },
+            cleartext = config.cleartextServices().map { it.name },
+        )
+    }
+
+    override suspend fun setRoot(root: String) {
+        require(isValidBaseUrl(root)) { "root must be an absolute http(s) URL" }
+        store.setRoot(root)
+    }
+
+    override suspend fun setDeriveFromRoot(derive: Boolean) = store.setDeriveFromRoot(derive)
+
+    override suspend fun setOverride(service: String, url: String) {
+        val target = BackendService.entries.firstOrNull { it.name.equals(service, ignoreCase = true) }
+            ?: throw IllegalArgumentException(
+                "unknown service '$service' — expected one of ${BackendService.entries.joinToString { it.name }}",
+            )
+        require(isValidBaseUrl(url)) { "url must be an absolute http(s) URL" }
+        store.setOverride(target, url)
+    }
+}
+
 /** Production wiring: builds every service over the real stores for the given [context]. */
 class DefaultAppServices(context: Context) : AppServices {
     private val appContext = context.applicationContext
@@ -107,4 +163,6 @@ class DefaultAppServices(context: Context) : AppServices {
     override val notificationWindows: NotificationWindowService =
         DefaultNotificationWindowService(NotificationWindowStore(appContext))
     override val transit: TransitQueryService = DefaultTransitQueryService()
+    override val backend: BackendConfigService =
+        DefaultBackendConfigService(BackendConfigStore(appContext))
 }
