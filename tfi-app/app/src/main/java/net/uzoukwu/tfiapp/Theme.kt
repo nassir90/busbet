@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import android.content.Context
 import androidx.compose.material3.ColorScheme

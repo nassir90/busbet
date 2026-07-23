@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable

@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import android.Manifest
 import android.content.Context

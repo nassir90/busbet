@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import android.appwidget.AppWidgetManager
 import android.content.Context

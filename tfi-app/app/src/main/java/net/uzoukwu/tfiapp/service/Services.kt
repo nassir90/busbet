@@ -1,17 +1,17 @@
-package com.example.tfiapp.service
+package net.uzoukwu.tfiapp.service
 
 import android.content.Context
-import com.example.tfiapp.Api
-import com.example.tfiapp.BackendConfigStore
-import com.example.tfiapp.BackendService
-import com.example.tfiapp.isValidBaseUrl
-import com.example.tfiapp.DeparturesResponse
-import com.example.tfiapp.Favourite
-import com.example.tfiapp.FavouritesStore
-import com.example.tfiapp.NotificationWindow
-import com.example.tfiapp.NotificationWindowStore
-import com.example.tfiapp.SettingsStore
-import com.example.tfiapp.Stop
+import net.uzoukwu.tfiapp.Api
+import net.uzoukwu.tfiapp.BackendConfigStore
+import net.uzoukwu.tfiapp.BackendService
+import net.uzoukwu.tfiapp.isValidBaseUrl
+import net.uzoukwu.tfiapp.DeparturesResponse
+import net.uzoukwu.tfiapp.Favourite
+import net.uzoukwu.tfiapp.FavouritesStore
+import net.uzoukwu.tfiapp.NotificationWindow
+import net.uzoukwu.tfiapp.NotificationWindowStore
+import net.uzoukwu.tfiapp.SettingsStore
+import net.uzoukwu.tfiapp.Stop
 import kotlinx.coroutines.flow.first
 
 /**

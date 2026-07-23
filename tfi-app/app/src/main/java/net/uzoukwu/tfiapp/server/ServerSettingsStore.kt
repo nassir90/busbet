@@ -1,11 +1,11 @@
-package com.example.tfiapp.server
+package net.uzoukwu.tfiapp.server
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.example.tfiapp.dataStore
+import net.uzoukwu.tfiapp.dataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.net.Inet4Address
@@ -37,7 +37,7 @@ private val SERVER_PORT_KEY = intPreferencesKey("server_port")
 /**
  * Persisted config for the on-device server: whether it should run, which interface(s) it binds to
  * ([BindMode]), and the port. Shares the app's single DataStore ("tfi"), matching the idiom of
- * [com.example.tfiapp.SettingsStore].
+ * [net.uzoukwu.tfiapp.SettingsStore].
  */
 class ServerSettingsStore(private val context: Context) {
     val enabled: Flow<Boolean> = context.dataStore.data.map { it[SERVER_ENABLED_KEY] ?: false }

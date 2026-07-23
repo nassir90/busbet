@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement

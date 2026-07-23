@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import android.content.Intent
 import android.os.Bundle
@@ -95,7 +95,7 @@ sealed class Screen {
 fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
-    val serverSettingsStore = remember { com.example.tfiapp.server.ServerSettingsStore(context) }
+    val serverSettingsStore = remember { net.uzoukwu.tfiapp.server.ServerSettingsStore(context) }
     val backendConfigStore = remember { BackendConfigStore(context) }
     val timeController = remember { TimeController() }
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })

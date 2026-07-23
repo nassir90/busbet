@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,14 +32,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
-import com.example.tfiapp.server.BindMode
-import com.example.tfiapp.server.DEFAULT_SERVER_PORT
-import com.example.tfiapp.server.OnDeviceServerService
-import com.example.tfiapp.server.ServerSettingsStore
-import com.example.tfiapp.server.bindHost
-import com.example.tfiapp.server.isValidPort
-import com.example.tfiapp.server.reachableHost
-import com.example.tfiapp.server.tailscaleIpv4
+import net.uzoukwu.tfiapp.server.BindMode
+import net.uzoukwu.tfiapp.server.DEFAULT_SERVER_PORT
+import net.uzoukwu.tfiapp.server.OnDeviceServerService
+import net.uzoukwu.tfiapp.server.ServerSettingsStore
+import net.uzoukwu.tfiapp.server.bindHost
+import net.uzoukwu.tfiapp.server.isValidPort
+import net.uzoukwu.tfiapp.server.reachableHost
+import net.uzoukwu.tfiapp.server.tailscaleIpv4
 import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 

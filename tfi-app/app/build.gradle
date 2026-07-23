@@ -10,13 +10,13 @@ def localPropsFile = rootProject.file('local.properties')
 if (localPropsFile.exists()) localPropsFile.withInputStream { localProps.load(it) }
 
 android {
-    namespace 'com.example.tfiapp'
-    compileSdk 34
+    namespace 'net.uzoukwu.tfiapp'
+    compileSdk 35
 
     defaultConfig {
-        applicationId "com.example.tfiapp"
+        applicationId "net.uzoukwu.tfiapp"
         minSdk 24
-        targetSdk 34
+        targetSdk 35
         versionCode 1
         versionName "1.0"
 
@@ -30,10 +30,34 @@ android {
         buildConfigField "String", "SENTRY_DSN", "\"${localProps.getProperty('sentry.dsn', '')}\""
     }
 
+    // Upload key for Play. Everything comes from local.properties (gitignored) so neither the
+    // keystore nor its passwords are ever committed. Absent config isn't an error — debug builds
+    // must keep working on a machine that has no signing material.
+    def keystorePath = localProps.getProperty('release.storeFile', '')
+    def hasReleaseSigning = !keystorePath.isEmpty() && rootProject.file(keystorePath).exists()
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(keystorePath)
+                storePassword localProps.getProperty('release.storePassword')
+                keyAlias localProps.getProperty('release.keyAlias')
+                keyPassword localProps.getProperty('release.keyPassword')
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            } else {
+                // Left unsigned deliberately rather than falling back to the debug key: a debug-signed
+                // artifact is silently unpublishable, and finding that out at upload is worse than here.
+                logger.lifecycle("No release signing config (set release.* in local.properties) — release build will be unsigned")
+            }
         }
     }
     compileOptions {

@@ -1,6 +1,6 @@
-package com.example.tfiapp.server
+package net.uzoukwu.tfiapp.server
 
-import com.example.tfiapp.service.AppServices
+import net.uzoukwu.tfiapp.service.AppServices
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO

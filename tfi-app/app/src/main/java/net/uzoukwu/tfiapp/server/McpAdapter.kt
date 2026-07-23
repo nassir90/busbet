@@ -1,7 +1,7 @@
-package com.example.tfiapp.server
+package net.uzoukwu.tfiapp.server
 
-import com.example.tfiapp.NotificationWindow
-import com.example.tfiapp.service.AppServices
+import net.uzoukwu.tfiapp.NotificationWindow
+import net.uzoukwu.tfiapp.service.AppServices
 import com.google.gson.Gson
 import io.ktor.server.application.Application
 import io.modelcontextprotocol.kotlin.sdk.server.Server

@@ -1,6 +1,6 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
-import com.example.tfiapp.BuildConfig
+import net.uzoukwu.tfiapp.BuildConfig
 import com.google.gson.annotations.SerializedName
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit

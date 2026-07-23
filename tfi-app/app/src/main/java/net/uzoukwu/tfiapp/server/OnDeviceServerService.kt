@@ -1,4 +1,4 @@
-package com.example.tfiapp.server
+package net.uzoukwu.tfiapp.server
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,8 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.example.tfiapp.MainActivity
-import com.example.tfiapp.service.DefaultAppServices
+import net.uzoukwu.tfiapp.MainActivity
+import net.uzoukwu.tfiapp.service.DefaultAppServices
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 /**
  * Foreground service that hosts the on-device [AppServer]. Running in the foreground (with a
  * persistent notification) keeps Android from killing the Ktor server when the screen is off.
- * Start/stop is driven by the Settings toggle (and by [com.example.tfiapp.BootReceiver] on boot if
+ * Start/stop is driven by the Settings toggle (and by [net.uzoukwu.tfiapp.BootReceiver] on boot if
  * the server was left enabled). Bind address + port are read from [ServerSettingsStore].
  */
 class OnDeviceServerService : Service() {

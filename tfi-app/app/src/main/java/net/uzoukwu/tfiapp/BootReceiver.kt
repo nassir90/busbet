@@ -1,10 +1,10 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.example.tfiapp.server.OnDeviceServerService
-import com.example.tfiapp.server.ServerSettingsStore
+import net.uzoukwu.tfiapp.server.OnDeviceServerService
+import net.uzoukwu.tfiapp.server.ServerSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first

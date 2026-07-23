@@ -1,4 +1,4 @@
-package com.example.tfiapp
+package net.uzoukwu.tfiapp
 
 import io.sentry.Sentry
 import io.sentry.SentryLevel

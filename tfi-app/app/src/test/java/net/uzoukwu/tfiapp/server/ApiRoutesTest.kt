@@ -1,15 +1,17 @@
-package com.example.tfiapp.server
+package net.uzoukwu.tfiapp.server
 
-import com.example.tfiapp.DeparturesResponse
-import com.example.tfiapp.Favourite
-import com.example.tfiapp.NotificationWindow
-import com.example.tfiapp.Stop
-import com.example.tfiapp.service.AppServices
-import com.example.tfiapp.service.FavouritesService
-import com.example.tfiapp.service.NotificationWindowService
-import com.example.tfiapp.service.SettingsService
-import com.example.tfiapp.service.SettingsSnapshot
-import com.example.tfiapp.service.TransitQueryService
+import net.uzoukwu.tfiapp.DeparturesResponse
+import net.uzoukwu.tfiapp.Favourite
+import net.uzoukwu.tfiapp.NotificationWindow
+import net.uzoukwu.tfiapp.Stop
+import net.uzoukwu.tfiapp.service.AppServices
+import net.uzoukwu.tfiapp.service.BackendConfigSnapshot
+import net.uzoukwu.tfiapp.service.BackendConfigService
+import net.uzoukwu.tfiapp.service.FavouritesService
+import net.uzoukwu.tfiapp.service.NotificationWindowService
+import net.uzoukwu.tfiapp.service.SettingsService
+import net.uzoukwu.tfiapp.service.SettingsSnapshot
+import net.uzoukwu.tfiapp.service.TransitQueryService
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
@@ -98,9 +100,26 @@ private class FakeTransit : TransitQueryService {
         DeparturesResponse(Stop("x", "x", "x"), emptyList())
 }
 
+private class FakeBackendConfig : BackendConfigService {
+    private var root = "https://example.test"
+    private var derive = true
+    private val overrides = mutableMapOf<String, String>()
+
+    override suspend fun get() = BackendConfigSnapshot(
+        root = root,
+        deriveFromRoot = derive,
+        resolved = mapOf("GTFS" to "$root/gtfsr-stop-times/", "TENANT" to "$root/tfi-tenant-api/"),
+        cleartext = emptyList(),
+    )
+    override suspend fun setRoot(root: String) { this.root = root }
+    override suspend fun setDeriveFromRoot(derive: Boolean) { this.derive = derive }
+    override suspend fun setOverride(service: String, url: String) { overrides[service] = url }
+}
+
 private class FakeServices(
     override val settings: SettingsService = FakeSettings(SettingsSnapshot(false, false, 10, 1000)),
     override val favourites: FavouritesService = FakeFavourites(),
     override val notificationWindows: NotificationWindowService = FakeNotificationWindows(),
     override val transit: TransitQueryService = FakeTransit(),
+    override val backend: BackendConfigService = FakeBackendConfig(),
 ) : AppServices
