@@ -240,17 +240,27 @@ fun HomeScreen(
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         if (matchingHistory.isNotEmpty()) {
                             items(matchingHistory, key = { "history:${it.isRoute}:${it.id}" }) { h ->
-                                ListItem(
-                                    leadingContent = {
-                                        Icon(Icons.Filled.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                CompactSearchRow(
+                                    label = h.label,
+                                    leading = {
+                                        Icon(
+                                            Icons.Filled.History,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp),
+                                        )
                                     },
-                                    headlineContent = { Text(h.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    trailingContent = {
-                                        IconButton(onClick = { scope.launch { historyStore.remove(h.id, h.isRoute) } }) {
-                                            Icon(Icons.Filled.Close, contentDescription = "Remove from history")
-                                        }
+                                    trailing = {
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = "Remove from history",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .size(18.dp)
+                                                .clickable { scope.launch { historyStore.remove(h.id, h.isRoute) } },
+                                        )
                                     },
-                                    modifier = Modifier.clickable {
+                                    onClick = {
                                         scope.launch { historyStore.record(h) }
                                         if (h.isRoute && h.routeShortName != null && h.directionId != null) {
                                             onOpenRoute(h.routeShortName, h.directionId)
@@ -265,9 +275,9 @@ fun HomeScreen(
                         if (routeResults.isNotEmpty()) {
                             item { SectionLabel("Routes") }
                             items(routeResults) { r ->
-                                ListItem(
-                                    headlineContent = { Text("${r.routeShortName}  ${r.fromStop} → ${r.toStop}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    modifier = Modifier.clickable {
+                                CompactSearchRow(
+                                    label = "${r.routeShortName}  ${r.fromStop} → ${r.toStop}",
+                                    onClick = {
                                         scope.launch {
                                             historyStore.record(
                                                 SearchHistoryEntry(
@@ -288,9 +298,9 @@ fun HomeScreen(
                         if (stopResults.isNotEmpty()) {
                             item { SectionLabel("Stops") }
                             items(stopResults) { s ->
-                                ListItem(
-                                    headlineContent = { Text("${s.stopCode}  ${s.stopName}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    modifier = Modifier.clickable {
+                                CompactSearchRow(
+                                    label = "${s.stopCode}  ${s.stopName}",
+                                    onClick = {
                                         scope.launch {
                                             historyStore.record(
                                                 SearchHistoryEntry(
@@ -420,6 +430,42 @@ private fun RenameFavouriteDialog(
         confirmButton = { TextButton(onClick = { onConfirm(text) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * A search result line. Material3's ListItem enforces a 56dp minimum height and a bodyLarge
+ * headline, which is far more room than a one-line stop name needs in a 320dp dropdown.
+ */
+@Composable
+private fun CompactSearchRow(
+    label: String,
+    onClick: () -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(12.dp))
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (trailing != null) {
+            Spacer(Modifier.width(12.dp))
+            trailing()
+        }
+    }
 }
 
 @Composable
