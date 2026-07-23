@@ -87,22 +87,38 @@ fun isValidPort(port: Int): Boolean = port in MIN_SERVER_PORT..MAX_SERVER_PORT
  * The device's first site-local IPv4 address (e.g. 192.168.x.x), used to render a reachable URL on
  * the local LAN. Returns null if the device isn't on a LAN.
  */
-fun lanIpv4(): String? = firstIpv4 { it.isSiteLocalAddress }
-
-/**
- * The device's Tailscale IPv4 address, if connected. Tailscale assigns addresses from the CGNAT
- * range 100.64.0.0/10, which is neither site-local nor loopback, so we match that range directly.
- */
-fun tailscaleIpv4(): String? = firstIpv4 { it.isInCgnatRange() }
-
-private fun firstIpv4(predicate: (Inet4Address) -> Boolean): String? = runCatching {
+fun lanIpv4(): String? = runCatching {
     NetworkInterface.getNetworkInterfaces().asSequence()
         .filter { it.isUp && !it.isLoopback }
         .flatMap { it.inetAddresses.asSequence() }
         .filterIsInstance<Inet4Address>()
-        .firstOrNull(predicate)
+        .firstOrNull { it.isSiteLocalAddress }
         ?.hostAddress
 }.getOrNull()
+
+/**
+ * The device's Tailscale IPv4 address, if connected, else null.
+ *
+ * Tailscale assigns addresses from the CGNAT range 100.64.0.0/10 — but so do mobile carriers on
+ * the cellular interface (carrier-grade NAT lives in the same range), so matching the range alone
+ * can pick the cellular address (e.g. ccmni2) by mistake. Tailscale's address is always on its VPN
+ * tunnel interface (tun0 on Android, tailscale0 on desktop), so we require both: a CGNAT-range
+ * address AND a tunnel-looking interface. If no tunnel interface carries one we return null rather
+ * than fall back to a non-Tailscale CGNAT address.
+ */
+fun tailscaleIpv4(): String? = runCatching {
+    NetworkInterface.getNetworkInterfaces().asSequence()
+        .filter { it.isUp && !it.isLoopback && it.name.isTunnelInterface() }
+        .flatMap { it.inetAddresses.asSequence() }
+        .filterIsInstance<Inet4Address>()
+        .firstOrNull { it.isInCgnatRange() }
+        ?.hostAddress
+}.getOrNull()
+
+/** True for VPN tunnel interface names — Tailscale is tun0 on Android, tailscale0 elsewhere. */
+private fun String.isTunnelInterface(): Boolean = lowercase().let {
+    it.startsWith("tun") || it.startsWith("tailscale") || it.startsWith("ts")
+}
 
 /** 100.64.0.0/10 — the shared-address space Tailscale draws its IPv4 addresses from. */
 private fun Inet4Address.isInCgnatRange(): Boolean {
