@@ -137,17 +137,18 @@ fun HomeScreen(
             // screen that's the favourites list. Lives here rather than above the list so it
             // doesn't cost a row of content.
             title = {
-                if (displayList.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Favourites", style = MaterialTheme.typography.titleLarge)
-                        if (sortByDistance) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "· by distance",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Unconditional: an empty title slot reads as a broken bar, unlike the
+                    // heading this replaced, which sat above the list and had to be hidden.
+                    Text("Favourites", style = MaterialTheme.typography.titleLarge)
+                    // The qualifier describes an ordering, so it means nothing with no list.
+                    if (sortByDistance && displayList.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "· by distance",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
                     }
                 }
             },
@@ -364,7 +365,7 @@ fun HomeScreen(
             } else {
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    "Search for a stop and add it as a favourite to see live departures here.",
+                    "No favourites added yet. Use search to see stop times.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
