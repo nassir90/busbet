@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
 sealed class Screen {
     data object Home : Screen()
     data object Settings : Screen()
+    data object Privacy : Screen()
     data class StopBoard(val code: String) : Screen()
     data class RouteView(val route: String, val direction: Int) : Screen()
     data class TripView(val tripId: String, val fromStopCode: String? = null) : Screen()
@@ -168,8 +169,10 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
                     settingsStore = settingsStore,
                     serverSettingsStore = serverSettingsStore,
                     backendConfigStore = backendConfigStore,
+                    onOpenPrivacy = { stack.add(Screen.Privacy) },
                     onBack = { pop() },
                 )
+                is Screen.Privacy -> PrivacyPolicyScreen(onBack = { pop() })
                 is Screen.StopBoard -> StopScreen(
                     code = layer.code,
                     timeController = timeController,

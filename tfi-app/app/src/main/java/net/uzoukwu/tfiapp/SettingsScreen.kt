@@ -50,6 +50,7 @@ fun SettingsScreen(
     settingsStore: SettingsStore,
     serverSettingsStore: ServerSettingsStore,
     backendConfigStore: BackendConfigStore,
+    onOpenPrivacy: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -321,6 +322,18 @@ fun SettingsScreen(
 
             // ── Backend configuration ────────────────────────────────────────
             BackendSection(backendConfigStore)
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
+            // ── About ────────────────────────────────────────────────────────
+            // Play requires the privacy policy to be reachable from inside the app, not only
+            // from the store listing.
+            SectionHeader("About")
+            TextButton(onClick = onOpenPrivacy, modifier = Modifier.padding(vertical = 4.dp)) {
+                Text("Privacy policy")
+            }
 
             Spacer(Modifier.height(24.dp))
         }
