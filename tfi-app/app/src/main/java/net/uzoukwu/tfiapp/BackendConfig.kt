@@ -19,6 +19,13 @@ import java.net.URI
  * user can repoint the app at a different deployment without a rebuild.
  */
 
+/**
+ * Arrival reporting ships in debug builds only. The feature is incomplete and the write API it
+ * posts to has no authentication or rate limiting, so it has no business being reachable in a
+ * published build.
+ */
+val REPORTS_ENABLED: Boolean get() = BuildConfig.DEBUG
+
 /** Default root. Served over the Cloudflare tunnel, hence https. */
 const val DEFAULT_BACKEND_ROOT = "https://pet.uzoukwu.net"
 

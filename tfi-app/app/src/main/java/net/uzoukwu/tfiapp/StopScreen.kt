@@ -253,7 +253,9 @@ fun DepartureRow(
         }
         Column(
             horizontalAlignment = Alignment.End,
-            modifier = Modifier.clickable(onClick = onReport),
+            // Arrival reporting is unfinished and the write API is unauthenticated, so the tap
+            // target is absent from release builds rather than merely inert.
+            modifier = if (REPORTS_ENABLED) Modifier.clickable(onClick = onReport) else Modifier,
         ) {
             Text(dueLabel(due), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
             Text(
