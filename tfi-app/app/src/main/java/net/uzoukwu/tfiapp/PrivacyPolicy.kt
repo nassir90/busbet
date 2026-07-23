@@ -44,16 +44,16 @@ val PRIVACY_POLICY_BODY = listOf(
 
     "LOCATION",
     "If you enable location sorting, the app reads your device location to order nearby stops by distance and to show the closest favourite in the home screen widget.",
-    "Your location is used entirely on your device. It is never transmitted to our servers or to anyone else. Turning off location sorting in Settings stops the app reading it.",
+    "Your location is used entirely on your device. It is never transmitted anywhere. Turning off location sorting in Settings stops the app reading it.",
     "The home screen widget reads your location while the app is not open, so that it can show the nearest stop without you launching the app. This only happens if location sorting is enabled.",
 
     "INFORMATION STORED ON YOUR DEVICE",
     "Your favourite stops, theme, notification schedules, recent searches and settings are stored on your device only. Uninstalling the app removes them.",
 
     "SERVERS AND NETWORK",
-    "The app talks to a backend server we operate, which supplies timetable and live departure data. That server is hosted in Germany and reached over an encrypted connection through Cloudflare, which acts as a network provider for the connection.",
-    "Our server does not log the IP addresses of requests.",
-    "Advanced users can point the app at a different backend server in Settings. If you do that, the data described above goes to whoever operates that server instead of to us, and this policy no longer governs it.",
+    "The app talks to the backend servers, which supply timetable and live departure data. They are hosted in Germany and reached over an encrypted connection through Cloudflare, which acts as a network provider for the connection.",
+    "The backend servers do not log the IP addresses of requests.",
+    "Advanced users can point the app at a different backend server in Settings. If you do that, the data described above goes to whoever operates that server, and this policy no longer governs it.",
 
     "ON-DEVICE SERVER",
     "The app can optionally run a server on your device so that tools on your own network can read and change its data. It is off by default. When enabled it has no authentication, so anyone who can reach your device on the chosen network can use it. Only enable it on networks you trust.",

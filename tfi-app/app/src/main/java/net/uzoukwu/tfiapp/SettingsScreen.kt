@@ -74,6 +74,9 @@ fun SettingsScreen(
     // Non-null while the palette editor is open.
     var editing by remember { mutableStateOf<AppPalette?>(null) }
 
+    // True while the location disclosure is up, before any location access happens.
+    var pendingLocationEnable by remember { mutableStateOf(false) }
+
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         scope.launch { settingsStore.setLocationAware(granted) }
     }
@@ -111,6 +114,20 @@ fun SettingsScreen(
                 TextButton(onClick = { scope.launch { action() }; pendingOverwrite = null }) { Text("Replace") }
             },
             dismissButton = { TextButton(onClick = { pendingOverwrite = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (pendingLocationEnable) {
+        LocationDisclosureDialog(
+            onCancel = { pendingLocationEnable = false },
+            onContinue = {
+                pendingLocationEnable = false
+                if (!LocationProvider.hasPermission(context)) {
+                    permLauncher.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                } else {
+                    scope.launch { settingsStore.setLocationAware(true) }
+                }
+            },
         )
     }
 
@@ -199,10 +216,14 @@ fun SettingsScreen(
                 Switch(
                     checked = locationAware,
                     onCheckedChange = { enabled ->
-                        if (enabled && !LocationProvider.hasPermission(context)) {
-                            permLauncher.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        // Disclosure gates *enabling*, not the permission request. Gating on the
+                        // permission branch would skip it for anyone who already granted location
+                        // or who toggles off and back on — Play cares about the app's use of the
+                        // data, not about whether the OS prompt appears.
+                        if (enabled) {
+                            pendingLocationEnable = true
                         } else {
-                            scope.launch { settingsStore.setLocationAware(enabled) }
+                            scope.launch { settingsStore.setLocationAware(false) }
                         }
                     },
                 )
@@ -836,6 +857,38 @@ private fun ResolvedUrlRow(label: String, url: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * Google Play requires an in-app disclosure before collecting data the user wouldn't reasonably
+ * expect — specifically including background collection while the app isn't active. The home
+ * screen widget reads location while the app is closed, which is what triggers it, so that use
+ * is stated explicitly rather than implied.
+ *
+ * Shown on every off-to-on transition rather than once: enabling location is rare, and a stored
+ * "already seen" flag is one more thing that can be wrong after a reinstall or a revoked
+ * permission.
+ */
+@Composable
+private fun LocationDisclosureDialog(onCancel: () -> Unit, onContinue: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Using your location") },
+        text = {
+            Column {
+                Text("Stops are sorted by distance from you.")
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "The home screen widget also uses your location while the app is closed, so " +
+                        "it can show your nearest stop without opening the app.",
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Your location stays on this device. It is never sent anywhere.")
+            }
+        },
+        confirmButton = { TextButton(onClick = onContinue) { Text("Continue") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Not now") } },
+    )
 }
 
 @Composable
