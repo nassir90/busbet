@@ -133,7 +133,24 @@ fun HomeScreen(
         contentWindowInsets = WindowInsets.statusBars,
         topBar = {
         TopAppBar(
-            title = { Text("TFI Live Departures") },
+            // The title slot names where you are, not what app you're running — on the home
+            // screen that's the favourites list. Lives here rather than above the list so it
+            // doesn't cost a row of content.
+            title = {
+                if (displayList.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Favourites", style = MaterialTheme.typography.titleLarge)
+                        if (sortByDistance) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "· by distance",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
+                    }
+                }
+            },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -294,18 +311,6 @@ fun HomeScreen(
             }
 
             if (displayList.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Favourites", style = MaterialTheme.typography.titleMedium)
-                    if (sortByDistance) {
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "· by distance",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxWidth().weight(1f),
