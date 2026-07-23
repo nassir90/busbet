@@ -19,22 +19,27 @@ class TfiApp : Application() {
         // reach it without MainActivity ever having run.
         BackendConfigHolder.init(this)
 
-        SentryAndroid.init(this) { options ->
-            options.dsn = BuildConfig.SENTRY_DSN
-            options.environment = if (BuildConfig.DEBUG) "debug" else "production"
-            options.release = "tfi-app@${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
-            // Errors only for now — no performance tracing (keeps quota + overhead down).
-            options.tracesSampleRate = 0.0
+        // Debug builds only. Sentry collects crash reports, device metadata and IP addresses,
+        // which for a published app means a Play Data safety declaration covering an SDK we get
+        // no value from in release — and the privacy policy states there are no analytics or
+        // tracking SDKs. Reintroduce deliberately, with the declarations, if it's ever wanted.
+        if (BuildConfig.DEBUG) {
+            SentryAndroid.init(this) { options ->
+                options.dsn = BuildConfig.SENTRY_DSN
+                options.environment = "debug"
+                options.release = "tfi-app@${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
+                // Errors only for now — no performance tracing (keeps quota + overhead down).
+                options.tracesSampleRate = 0.0
 
-            // Drop expected "user is offline" connectivity noise; keep everything else.
-            options.beforeSend = io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
-                when (event.throwable) {
-                    is UnknownHostException, is SocketTimeoutException, is ConnectException -> null
-                    else -> event
+                // Drop expected "user is offline" connectivity noise; keep everything else.
+                options.beforeSend = io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
+                    when (event.throwable) {
+                        is UnknownHostException, is SocketTimeoutException, is ConnectException -> null
+                        else -> event
+                    }
                 }
+                options.setDiagnosticLevel(SentryLevel.WARNING)
             }
-            options.setTag("app.flavor", if (BuildConfig.DEBUG) "debug" else "release")
-            options.setDiagnosticLevel(SentryLevel.WARNING)
         }
     }
 }
