@@ -28,7 +28,11 @@ fun RouteScreen(
     LaunchedEffect(route, direction) {
         runCatching { Api.service.routeStops(route, direction) }
             .onSuccess { stops = it; error = null }
-            .onFailure { error = it.message ?: "error"; stops = emptyList() }
+            .onFailure {
+                // Leaving the screen cancels this; that isn't an error to show the user.
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                error = it.message ?: "error"; stops = emptyList()
+            }
     }
 
     Scaffold(topBar = {

@@ -86,6 +86,12 @@ fun HomeScreen(
             routeResults = Api.service.searchRoutes(query)
             searchError = null
         }.onFailure { e ->
+            // Typing fast cancels the previous search. runCatching catches CancellationException
+            // like any other failure, so without this the cancellation was rendered to the user
+            // as "LeftCompositionCancellationException" and the results were cleared — a normal
+            // keystroke looked like a crash. Rethrowing also keeps the coroutine's cancellation
+            // honest instead of swallowing it.
+            if (e is kotlinx.coroutines.CancellationException) throw e
             android.util.Log.e("tfi", "search failed", e)
             stopResults = emptyList(); routeResults = emptyList()
             searchError = "${e::class.simpleName}: ${e.message}"
