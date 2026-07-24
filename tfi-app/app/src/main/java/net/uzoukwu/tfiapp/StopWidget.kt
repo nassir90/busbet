@@ -83,14 +83,21 @@ class StopWidget : GlanceAppWidget() {
             Configuration.UI_MODE_NIGHT_YES
         val pal = glancePalette(appPalette.faceFor(isDark))
 
-        val deps: List<Departure>? = if (code != null) {
+        // A failed fetch must not destroy what's on screen. Fall back to the last good result
+        // and mark it stale rather than blanking the widget.
+        val fresh: List<Departure>? = if (code != null) {
             runCatching { Api.service.departures(code).departures.take(3) }.getOrNull()
         } else null
+        if (fresh != null && code != null) WidgetCache.save(context, code, fresh)
+
+        val cached = if (fresh == null && code != null) WidgetCache.load(context, code) else null
+        val deps = fresh ?: cached?.departures
+        val staleLabel = cached?.let { "stale · ${WidgetCache.ageLabel(it.ageMinutes)}" }
 
         val asOf = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
         provideContent {
-            WidgetUI(context, appWidgetId, code, name, deps, pal, asOf)
+            WidgetUI(context, appWidgetId, code, name, deps, pal, asOf, staleLabel)
         }
     }
 
@@ -103,6 +110,7 @@ class StopWidget : GlanceAppWidget() {
         deps: List<Departure>?,
         pal: Palette,
         asOf: String,
+        staleLabel: String?,
     ) {
         val openIntent = if (code == null) {
             Intent(context, StopWidgetConfigActivity::class.java).apply {
@@ -179,6 +187,14 @@ class StopWidget : GlanceAppWidget() {
             Spacer(GlanceModifier.height(8.dp))
             Box(modifier = GlanceModifier.fillMaxWidth().height(1.dp).background(pal.divider)) {}
             Spacer(GlanceModifier.height(6.dp))
+
+            if (staleLabel != null) {
+                Text(
+                    staleLabel,
+                    style = TextStyle(color = ColorProvider(pal.dueRed), fontSize = 10.sp),
+                )
+                Spacer(GlanceModifier.height(4.dp))
+            }
 
             when {
                 deps == null -> Text(

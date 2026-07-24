@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
+import androidx.glance.state.PreferencesGlanceStateDefinition
+import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
@@ -102,9 +104,19 @@ class NearestFavouriteWidget : GlanceAppWidget() {
         val showCount = if (location != null && withinWindow >= 2) 2 else 1
         val nearest = ordered.take(showCount)
 
+        // Per stop: a failed fetch falls back to that stop's last good result, flagged stale,
+        // rather than blanking it. One stop failing no longer wipes the others either.
+        val staleLabels = HashMap<String, String>()
         val stops = nearest.map { (fav, distance) ->
-            val deps = runCatching { Api.service.departures(fav.code).departures.take(3) }.getOrNull()
-            NearestStop(fav, deps, distance)
+            val fresh = runCatching { Api.service.departures(fav.code).departures.take(3) }.getOrNull()
+            if (fresh != null) {
+                WidgetCache.save(context, fav.code, fresh)
+                NearestStop(fav, fresh, distance)
+            } else {
+                val cached = WidgetCache.load(context, fav.code)
+                cached?.let { staleLabels[fav.code] = "stale · ${WidgetCache.ageLabel(it.ageMinutes)}" }
+                NearestStop(fav, cached?.departures, distance)
+            }
         }
 
         val appPalette = runCatching { PaletteStore(context).current() }.getOrDefault(DEFAULT_PALETTE)
@@ -115,7 +127,7 @@ class NearestFavouriteWidget : GlanceAppWidget() {
         val asOf = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
         provideContent {
-            WidgetUI(context, stops, pal, asOf)
+            WidgetUI(context, stops, pal, asOf, staleLabels)
         }
     }
 
@@ -125,6 +137,7 @@ class NearestFavouriteWidget : GlanceAppWidget() {
         stops: List<NearestStop>,
         pal: NearestPalette,
         asOf: String,
+        staleLabels: Map<String, String> = emptyMap(),
     ) {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -199,13 +212,13 @@ class NearestFavouriteWidget : GlanceAppWidget() {
                     Box(modifier = GlanceModifier.fillMaxWidth().height(1.dp).background(pal.divider)) {}
                     Spacer(GlanceModifier.height(6.dp))
                 }
-                StopBlock(stop, pal)
+                StopBlock(stop, pal, staleLabels[stop.favourite.code])
             }
         }
     }
 
     @Composable
-    private fun StopBlock(stop: NearestStop, pal: NearestPalette) {
+    private fun StopBlock(stop: NearestStop, pal: NearestPalette, staleLabel: String? = null) {
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -226,6 +239,11 @@ class NearestFavouriteWidget : GlanceAppWidget() {
                     style = TextStyle(color = ColorProvider(pal.accent), fontSize = 11.sp),
                 )
             }
+        }
+
+        staleLabel?.let {
+            Text(it, style = TextStyle(color = ColorProvider(pal.dueRed), fontSize = 10.sp))
+            Spacer(GlanceModifier.height(4.dp))
         }
 
         when {
