@@ -37,7 +37,7 @@ const val PRIVACY_POLICY_LAST_UPDATED = "23 July 2026"
 // Paragraphs are single logical lines. Hard-wrapping the source would render as literal line
 // breaks mid-sentence — the text must reflow to whatever width the device gives it.
 val PRIVACY_POLICY_BODY = listOf(
-    "Bus Dashboard for Dublin shows live bus departures using open transport data. This policy describes what the app does with your information.",
+    "Iompar shows live Dublin bus departures using open transport data. This policy describes what the app does with your information.",
 
     "WHAT THIS APP DOES NOT DO",
     "The app has no accounts and no sign-in. It does not ask for your name, email or phone number. It contains no advertising and no analytics or tracking SDKs.",

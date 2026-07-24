@@ -8,8 +8,8 @@ it. Re-run after editing PRIVACY_POLICY_BODY, then redeploy www/ to the server.
 
     python3 scripts/gen-privacy-policy-html.py
 
-Served at https://pet.uzoukwu.net/bus-dashboard-for-dublin/privacy-policy
-(Caddy file_server over /srv/www/bus-dashboard-for-dublin).
+Served at https://pet.uzoukwu.net/iompar/privacy-policy
+(Caddy file_server over /srv/www/iompar).
 """
 
 import html
@@ -19,7 +19,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "tfi-app/app/src/main/java/net/uzoukwu/tfiapp/PrivacyPolicy.kt"
-OUT = ROOT / "www/bus-dashboard-for-dublin/privacy-policy.html"
+OUT = ROOT / "www/iompar/privacy-policy.html"
 
 CSS = """
   body{font:16px/1.6 system-ui,-apple-system,sans-serif;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}
@@ -65,10 +65,10 @@ def main() -> int:
         '<!doctype html>\n<html lang="en"><head>\n'
         '<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
-        "<title>Privacy policy — Bus Dashboard for Dublin</title>\n"
+        "<title>Privacy policy — Iompar</title>\n"
         f"<style>\n{CSS}\n</style>\n"
         "</head><body>\n<h1>Privacy policy</h1>\n"
-        f'<p class="updated">Bus Dashboard for Dublin · last updated {html.escape(updated)}</p>\n'
+        f'<p class="updated">Iompar · last updated {html.escape(updated)}</p>\n'
         + "\n".join(rendered)
         + "\n</body></html>\n"
     )
