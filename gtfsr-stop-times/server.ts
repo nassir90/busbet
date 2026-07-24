@@ -90,7 +90,22 @@ async function vehiclesAt(stopCode: string, atSec: number | undefined, windowMin
 			})
 			.map((d) => [d.trip_id, { route: d.route_short_name, delay: d.delay_seconds }])
 	);
-	return getVehiclesForTrips(tripMap, VEHICLES_DIR, atSec, lookbackSec);
+	const result = getVehiclesForTrips(tripMap, VEHICLES_DIR, atSec, lookbackSec);
+	return { ...result, positions: await withTripSpans(result.positions) };
+}
+
+/**
+ * Attaches each trip's scheduled first departure and last arrival, so a client can tell a bus
+ * that hasn't started from one that has finished. The feed's own status fields are constants.
+ */
+async function withTripSpans<T extends { trip_id: string }>(positions: T[]) {
+	if (!positions.length) return positions;
+	const spans = await storage.getTripSpans(positions.map((p) => p.trip_id));
+	return positions.map((p) => ({
+		...p,
+		first_departure: spans.get(p.trip_id)?.first_departure ?? null,
+		last_arrival: spans.get(p.trip_id)?.last_arrival ?? null,
+	}));
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +225,43 @@ const server = http.createServer(async (req, res) => {
 
 		// /vehicles/{stop_code} — active vehicle positions for trips serving this stop,
 		// with server-derived bearings (NTA feed bearing field is always 0).
+		// Road geometry. Trip-scoped: a route has several shapes across its trips, so a
+		// route-level lookup would have to pick one arbitrarily. Points are already decimated at
+		// load time (see load-gtfs.ts --shape-tolerance), ~111 per shape rather than ~1,244.
+		// Position of one specific trip's vehicle. /vehicles/{code} is stop-scoped, which is no
+		// use on the trip screen: the bus may be nowhere near the stop you came from.
+		const vehicleForTrip = path.match(/^\/vehicles\/trip\/([^/]+)$/);
+		if (vehicleForTrip) {
+			const tripId = decodeURIComponent(vehicleForTrip[1]);
+			const at = parseTimeParam(url.searchParams.get('time'));
+			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
+			const detail = await storage.getTripDetail(tripId);
+			const route = detail?.route_short_name ?? '';
+			const v = getVehiclesForTrips(
+				new Map([[tripId, { route, delay: null }]]),
+				VEHICLES_DIR,
+				at ?? undefined,
+				lookback,
+			);
+			const pos = (await withTripSpans(v.positions))[0] ?? null;
+			if (!pos) return respond(res, 404, { message: `No live position for trip ${tripId}` });
+			return respond(res, 200, pos);
+		}
+
+		const shapeForTrip = path.match(/^\/shapes\/trip\/([^/]+)$/);
+		if (shapeForTrip) {
+			const pts = await storage.getShapeForTrip(decodeURIComponent(shapeForTrip[1]));
+			if (!pts.length) return respond(res, 404, { message: `No shape for trip ${shapeForTrip[1]}` });
+			return respond(res, 200, pts);
+		}
+
+		const shapeById = path.match(/^\/shapes\/([^/]+)$/);
+		if (shapeById) {
+			const pts = await storage.getShape(decodeURIComponent(shapeById[1]));
+			if (!pts.length) return respond(res, 404, { message: `Shape ${shapeById[1]} not found` });
+			return respond(res, 200, pts);
+		}
+
 		const vehicles = path.match(/^\/vehicles\/([^/]+)$/);
 		if (vehicles) {
 			const at = parseTimeParam(url.searchParams.get('time'));

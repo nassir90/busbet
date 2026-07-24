@@ -1,6 +1,6 @@
 import { createClient } from '@libsql/client';
 import type { Client } from '@libsql/client';
-import type { GtfsStorage, Stop, Departure, StopTime, RouteDirection, RouteStop } from './types.js';
+import type { GtfsStorage, Stop, Departure, StopTime, RouteDirection, RouteStop, ShapePoint } from './types.js';
 
 function openDb(path: string): Client {
 	return createClient({ url: `file:${path}` });
@@ -134,6 +134,8 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				        s.stop_id,
 				        s.stop_code,
 				        s.stop_name,
+				        s.stop_lat,
+				        s.stop_lon,
 				        t.trip_headsign,
 				        t.direction_id,
 				        r.route_short_name
@@ -164,6 +166,8 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 					stop_id: row.stop_id as string,
 					stop_code: row.stop_code as string,
 					stop_name: row.stop_name as string,
+					stop_lat: (row.stop_lat as number | null) ?? null,
+					stop_lon: (row.stop_lon as number | null) ?? null,
 					scheduled_arrival: formatTime(row.arrival_time as string),
 					scheduled_departure: formatTime(row.departure_time as string),
 					estimated_arrival: null,
@@ -265,6 +269,54 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				args: [stopCode]
 			});
 			return r.rows.map((row) => row.route_short_name as string);
+		},
+
+		/**
+		 * Scheduled first departure and last arrival per trip. The realtime feed can't tell us
+		 * whether a bus is running — NTA reports currentStatus IN_TRANSIT_TO and
+		 * currentStopSequence 0 for every vehicle — so the schedule is the usable signal.
+		 */
+		async getTripSpans(tripIds: string[]) {
+			const out = new Map<string, { first_departure: string; last_arrival: string }>();
+			if (!tripIds.length) return out;
+			const placeholders = tripIds.map(() => '?').join(',');
+			const r = await db.execute({
+				sql: `SELECT trip_id, MIN(departure_time) AS first_departure, MAX(arrival_time) AS last_arrival
+				      FROM stop_times WHERE trip_id IN (${placeholders}) GROUP BY trip_id`,
+				args: tripIds
+			});
+			for (const row of r.rows) {
+				out.set(row.trip_id as string, {
+					first_departure: row.first_departure as string,
+					last_arrival: row.last_arrival as string,
+				});
+			}
+			return out;
+		},
+
+		async getShape(shapeId: string): Promise<ShapePoint[]> {
+			const r = await db.execute({
+				sql: 'SELECT lat, lon FROM shapes WHERE shape_id = ? ORDER BY seq',
+				args: [shapeId]
+			});
+			return r.rows as unknown as ShapePoint[];
+		},
+
+		/**
+		 * Geometry for the road a trip follows. Trip-scoped rather than route-scoped: a route has
+		 * several shapes across its trips, so a route-level lookup would have to pick one
+		 * arbitrarily or merge them.
+		 */
+		async getShapeForTrip(tripId: string): Promise<ShapePoint[]> {
+			const r = await db.execute({
+				sql: `SELECT s.lat, s.lon
+				      FROM shapes s
+				      JOIN trips t ON t.shape_id = s.shape_id
+				      WHERE t.trip_id = ?
+				      ORDER BY s.seq`,
+				args: [tripId]
+			});
+			return r.rows as unknown as ShapePoint[];
 		},
 
 		async getRouteTrips(routeShortName: string, directionId?: number): Promise<string[]> {
