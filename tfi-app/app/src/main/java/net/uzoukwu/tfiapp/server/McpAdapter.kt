@@ -56,6 +56,8 @@ private fun buildMcpServer(services: AppServices): Server {
             "hideFarStops" to prop("boolean", "Hide stops beyond the far-stop threshold"),
             "busDisplayThresholdMin" to prop("integer", "Only show buses due within this many minutes"),
             "farStopThresholdM" to prop("integer", "Distance in metres beyond which a stop is 'far'"),
+            "routeLines" to prop("boolean", "Draw each shown bus's road geometry on the stop map"),
+            "routeLineDistanceM" to prop("integer", "How far ahead of each bus to draw its route line, in metres (100-3000)"),
         ),
     ) { req ->
         val args = req.arguments
@@ -63,6 +65,8 @@ private fun buildMcpServer(services: AppServices): Server {
         args.bool("hideFarStops")?.let { services.settings.setHideFarStops(it) }
         args.int("busDisplayThresholdMin")?.let { services.settings.setBusDisplayThresholdMin(it) }
         args.int("farStopThresholdM")?.let { services.settings.setFarStopThresholdM(it) }
+        args.bool("routeLines")?.let { services.settings.setRouteLines(it) }
+        args.int("routeLineDistanceM")?.let { services.settings.setRouteLineDistanceM(it) }
         json(services.settings.get())
     }
 

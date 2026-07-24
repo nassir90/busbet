@@ -20,36 +20,35 @@ import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-
-private fun cartoTiles(style: String) = XYTileSource(
-    "CartoDB.$style",
-    1, 19, 256, ".png",
-    arrayOf(
-        "https://a.basemaps.cartocdn.com/${style}/",
-        "https://b.basemaps.cartocdn.com/${style}/",
-        "https://c.basemaps.cartocdn.com/${style}/",
-        "https://d.basemaps.cartocdn.com/${style}/",
-    ),
-    "© CartoDB © OpenStreetMap contributors",
-)
-
-private val CARTO_DARK  = cartoTiles("dark_all")
-private val CARTO_LIGHT = cartoTiles("light_all")
-
-private const val STOP_MARKER_TAG    = "stop"
-private const val VEHICLE_MARKER_TAG = "vehicle"
+import org.osmdroid.views.overlay.Overlay
+import org.osmdroid.views.overlay.Polyline
 
 @Composable
 fun StopMap(
     lat: Double,
     lon: Double,
+    stopCode: String? = null,
+    /** How far ahead of each bus to draw its route line, in metres. */
+    lineAheadM: Int = DEFAULT_ROUTE_LINE_DISTANCE_M,
     vehicles: List<VehiclePosition> = emptyList(),
+    /** Road geometry per trip id. Empty when route lines are off. */
+    shapes: Map<String, List<ShapePoint>> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val isDark  = isSystemInDarkTheme()
     val primary = MaterialTheme.colorScheme.primary
     val tint    = primary.copy(alpha = 0.14f)
     val pinArgb = primary.toArgb()
+    // Text on the marker fill. The palette already names the right colour for this: the default
+    // theme's dark mode uses a light lavender primary (0xFFD0BCFF), where hardcoded white is
+    // unreadable, and onPrimary is 0xFF381E72.
+    val onPinArgb = MaterialTheme.colorScheme.onPrimary.toArgb()
+    // Buses outside their scheduled window are dimmed rather than hidden: still there, visibly
+    // not running.
+    val nowMins = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+    val busFill = { v: VehiclePosition ->
+        if (runStateOf(v, nowMins) == RunState.RUNNING) pinArgb else dimmed(pinArgb)
+    }
     val tiles   = if (isDark) CARTO_DARK else CARTO_LIGHT
 
     AndroidView(
@@ -69,7 +68,7 @@ fun StopMap(
                 overlays.add(Marker(this).apply {
                     position  = GeoPoint(lat, lon)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    icon      = StopPinDrawable(pinArgb, density)
+                    icon      = StopSquareDrawable(pinArgb, onPinArgb, density, stopCode)
                     title     = null
                     infoWindow = null
                     id = STOP_MARKER_TAG
@@ -94,6 +93,44 @@ fun StopMap(
                     if (it.position != p) it.position = p
                 }
 
+            // Route lines: only the stretch the bus is about to cover, fading out ahead.
+            // Rendering lives in MapCommon so the trip screen draws lines the same way.
+            val shapePrefix = "$SHAPE_TAG:"
+            val existingShapes = map.overlays
+                .filterIsInstance<Polyline>()
+                .filter { it.id?.startsWith(shapePrefix) == true }
+                .associateBy { it.id!! }
+            val wantedShapeIds = HashSet<String>()
+            val toAdd = mutableListOf<Polyline>()
+
+            for ((tripId, points) in shapes) {
+                if (points.isEmpty()) continue
+                // Without a vehicle position there's nothing to anchor the run to, so skip it
+                // rather than drawing the whole cross-city trip.
+                val v = vehicles.firstOrNull { it.tripId == tripId } ?: continue
+                // Only the stretch between the bus and this stop — the part of the journey the
+                // user is actually waiting on. Nothing before the bus, nothing past the stop.
+                val run = routeBetween(points, v.lat, v.lon, lat, lon)
+                if (run.size < 2) continue
+                renderFadedLine(
+                    map = map,
+                    idPrefix = "$shapePrefix$tripId",
+                    points = run,
+                    colorArgb = if (runStateOf(v, nowMins) == RunState.RUNNING) pinArgb else dimmed(pinArgb),
+                    // Fades as it approaches the stop. Flat 1f here removes not just the fade
+                    // but the width taper and soft cap with it, which reads as a blunt slab.
+                    solidFraction = SOLID_FRACTION,
+                    existing = existingShapes,
+                    wantedIds = wantedShapeIds,
+                    toAdd = toAdd,
+                )
+            }
+
+            existingShapes.forEach { (id, line) ->
+                if (id !in wantedShapeIds) map.overlays.remove(line)
+            }
+            map.overlays.addAll(toAdd)
+
             // Vehicle markers: diff by id and mutate in place instead of clearing and
             // re-adding every poll. Tearing them all down is what makes the buses blink.
             val prefix   = "$VEHICLE_MARKER_TAG:"
@@ -117,16 +154,18 @@ fun StopMap(
                     map.overlays.add(Marker(map).apply {
                         position  = point
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        icon      = BusMarkerDrawable(v.routeShortName, pinArgb, v.bearing, density)
+                        icon      = BusMarkerDrawable(v.routeShortName, busFill(v), onPinArgb, v.bearing, density)
                         title     = null
                         infoWindow = null
                         this.id   = id
                     })
                 } else {
                     marker.position = point
-                    marker.icon     = BusMarkerDrawable(v.routeShortName, pinArgb, v.bearing, density)
+                    marker.icon     = BusMarkerDrawable(v.routeShortName, busFill(v), onPinArgb, v.bearing, density)
                 }
             }
+
+            applyOverlayOrder(map)
 
             map.invalidate()
         },
@@ -140,28 +179,3 @@ fun StopMap(
     )
 }
 
-// Stop pin: same radius and border as bus markers, no label.
-private class StopPinDrawable(private val fillColor: Int, density: Float) : Drawable() {
-    private val radius = 10f * density
-    private val fill   = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fillColor }
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color       = 0x66000000
-        style       = Paint.Style.STROKE
-        strokeWidth = 1.5f * density
-    }
-    private val intrinsic = (radius * 2f + 4f).toInt()
-
-    override fun draw(canvas: Canvas) {
-        val cx = bounds.exactCenterX()
-        val cy = bounds.exactCenterY()
-        canvas.drawCircle(cx, cy, radius, fill)
-        canvas.drawCircle(cx, cy, radius, stroke)
-    }
-
-    override fun setAlpha(alpha: Int)             { fill.alpha = alpha }
-    override fun setColorFilter(cf: ColorFilter?) { fill.colorFilter = cf }
-    @Suppress("OVERRIDE_DEPRECATION")
-    override fun getOpacity() = PixelFormat.TRANSLUCENT
-    override fun getIntrinsicWidth()  = intrinsic
-    override fun getIntrinsicHeight() = intrinsic
-}

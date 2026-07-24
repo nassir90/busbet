@@ -30,6 +30,8 @@ data class SettingsSnapshot(
     val hideFarStops: Boolean,
     val busDisplayThresholdMin: Int,
     val farStopThresholdM: Int,
+    val routeLines: Boolean,
+    val routeLineDistanceM: Int,
 )
 
 interface SettingsService {
@@ -38,6 +40,8 @@ interface SettingsService {
     suspend fun setHideFarStops(enabled: Boolean)
     suspend fun setBusDisplayThresholdMin(minutes: Int)
     suspend fun setFarStopThresholdM(metres: Int)
+    suspend fun setRouteLines(enabled: Boolean)
+    suspend fun setRouteLineDistanceM(metres: Int)
 }
 
 interface FavouritesService {
@@ -97,11 +101,15 @@ private class DefaultSettingsService(private val store: SettingsStore) : Setting
         hideFarStops = store.hideFarStops.first(),
         busDisplayThresholdMin = store.busDisplayThresholdMin.first(),
         farStopThresholdM = store.farStopThresholdM.first(),
+        routeLines = store.routeLines.first(),
+        routeLineDistanceM = store.routeLineDistanceM.first(),
     )
     override suspend fun setLocationAware(enabled: Boolean) = store.setLocationAware(enabled)
     override suspend fun setHideFarStops(enabled: Boolean) = store.setHideFarStops(enabled)
     override suspend fun setBusDisplayThresholdMin(minutes: Int) = store.setBusDisplayThresholdMin(minutes)
     override suspend fun setFarStopThresholdM(metres: Int) = store.setFarStopThresholdM(metres)
+    override suspend fun setRouteLines(enabled: Boolean) = store.setRouteLines(enabled)
+    override suspend fun setRouteLineDistanceM(metres: Int) = store.setRouteLineDistanceM(metres)
 }
 
 private class DefaultFavouritesService(private val store: FavouritesStore) : FavouritesService {

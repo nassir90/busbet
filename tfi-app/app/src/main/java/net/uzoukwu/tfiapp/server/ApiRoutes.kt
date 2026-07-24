@@ -23,6 +23,8 @@ data class SettingsPatch(
     val hideFarStops: Boolean? = null,
     val busDisplayThresholdMin: Int? = null,
     val farStopThresholdM: Int? = null,
+    val routeLines: Boolean? = null,
+    val routeLineDistanceM: Int? = null,
 )
 
 /** Partial backend-endpoint update. `overrides` is keyed by [net.uzoukwu.tfiapp.BackendService] name. */
@@ -71,6 +73,8 @@ fun Route.apiRoutes(services: AppServices) {
             patch.hideFarStops?.let { services.settings.setHideFarStops(it) }
             patch.busDisplayThresholdMin?.let { services.settings.setBusDisplayThresholdMin(it) }
             patch.farStopThresholdM?.let { services.settings.setFarStopThresholdM(it) }
+            patch.routeLines?.let { services.settings.setRouteLines(it) }
+            patch.routeLineDistanceM?.let { services.settings.setRouteLineDistanceM(it) }
             call.respondJson(services.settings.get())
         }
     }

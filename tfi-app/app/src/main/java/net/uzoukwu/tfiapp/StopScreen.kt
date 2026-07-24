@@ -52,6 +52,11 @@ fun StopScreen(
     var isRefreshing by remember(code) { mutableStateOf(false) }
     val querySec = timeController.committedSec
     val busDisplayThresholdMin by settingsStore.busDisplayThresholdMin.collectAsState(initial = DEFAULT_BUS_DISPLAY_THRESHOLD_MIN)
+    val routeLines by settingsStore.routeLines.collectAsState(initial = false)
+    val routeLineDistanceM by settingsStore.routeLineDistanceM.collectAsState(initial = DEFAULT_ROUTE_LINE_DISTANCE_M)
+    // Trip id -> road geometry. Cached across polls: a trip's shape is static, so refetching it
+    // every 30s would be pure waste.
+    val shapes = remember { mutableStateMapOf<String, List<ShapePoint>>() }
     val nowMins = querySec?.let {
         java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
             .let { z -> z.hour * 60 + z.minute }
@@ -155,10 +160,28 @@ fun StopScreen(
                     val due = dueMinutesFor(v, data?.departures, nowMins)
                     due == null || due <= busDisplayThresholdMin
                 }
+                LaunchedEffect(routeLines, shownVehicles.map { it.tripId }) {
+                    if (!routeLines) return@LaunchedEffect
+                    shownVehicles.forEach { v ->
+                        if (shapes.containsKey(v.tripId)) return@forEach
+                        runCatching { Api.service.tripShape(v.tripId) }
+                            .onSuccess { shapes[v.tripId] = it }
+                            .onFailure {
+                                if (it is CancellationException) throw it
+                                // A trip with no shape in the feed is normal; don't retry it.
+                                shapes[v.tripId] = emptyList()
+                            }
+                    }
+                }
                 StopMap(
                     lat = stop.stopLat,
                     lon = stop.stopLon,
+                    stopCode = code,
+                    lineAheadM = routeLineDistanceM,
                     vehicles = shownVehicles,
+                    shapes = if (routeLines) {
+                        shownVehicles.mapNotNull { v -> shapes[v.tripId]?.let { v.tripId to it } }.toMap()
+                    } else emptyMap(),
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                 )
             }

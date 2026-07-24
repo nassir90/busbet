@@ -28,6 +28,25 @@ fun TripScreen(
     var detail by remember(tripId) { mutableStateOf<TripDetail?>(null) }
     var initialError by remember(tripId) { mutableStateOf<String?>(null) }
     var stale by remember(tripId) { mutableStateOf(false) }
+    // Geometry is static, so fetch once per trip rather than on the 30s detail poll.
+    var shape by remember(tripId) { mutableStateOf<List<ShapePoint>>(emptyList()) }
+    LaunchedEffect(tripId) {
+        runCatching { Api.service.tripShape(tripId) }
+            .onSuccess { shape = it }
+            .onFailure { shape = emptyList() } // trips without a shape in the feed are normal
+    }
+
+    // The bus does move, so unlike the shape this polls. 404 simply means the trip has no
+    // vehicle reporting right now — scheduled-only, finished, or not yet started.
+    var vehicle by remember(tripId) { mutableStateOf<VehiclePosition?>(null) }
+    LaunchedEffect(tripId) {
+        while (true) {
+            runCatching { Api.service.tripVehicle(tripId) }
+                .onSuccess { vehicle = it }
+                .onFailure { vehicle = null }
+            delay(30_000)
+        }
+    }
 
     LaunchedEffect(tripId) {
         while (true) {
@@ -62,7 +81,21 @@ fun TripScreen(
                     )
                 }
             },
-            actions = { if (stale) StaleBadge() },
+            actions = {
+                // From the schedule, not the feed: NTA reports currentStatus IN_TRANSIT_TO and
+                // currentStopSequence 0 for every vehicle, so neither can answer this.
+                val nowMins = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+                val state = vehicle?.let { runStateOf(it, nowMins) }
+                if (state == RunState.NOT_DEPARTED || state == RunState.FINISHED) {
+                    Text(
+                        if (state == RunState.NOT_DEPARTED) "(not departed)" else "(finished)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(end = 12.dp),
+                    )
+                }
+                if (stale) StaleBadge()
+            },
         )
     }) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -73,7 +106,22 @@ fun TripScreen(
                 d == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                else -> TripStopsList(d, fromStopCode, onOpenStop)
+                else -> {
+                    val anchor = fromStopCode?.let { code -> d.stops.firstOrNull { it.stopCode == code } }
+                    Column(Modifier.fillMaxSize()) {
+                        if (shape.size >= 2) {
+                            TripMap(
+                                shape = shape,
+                                anchorLat = anchor?.stopLat,
+                                anchorLon = anchor?.stopLon,
+                                anchorLabel = anchor?.stopCode,
+                                vehicle = vehicle,
+                                modifier = Modifier.fillMaxWidth().height(200.dp),
+                            )
+                        }
+                        TripStopsList(d, fromStopCode, onOpenStop)
+                    }
+                }
             }
         }
     }

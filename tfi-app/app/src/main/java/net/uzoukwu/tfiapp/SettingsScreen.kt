@@ -59,6 +59,8 @@ fun SettingsScreen(
     val hideFarStops by settingsStore.hideFarStops.collectAsState(initial = false)
     val farStopThresholdM by settingsStore.farStopThresholdM.collectAsState(initial = DEFAULT_FAR_STOP_THRESHOLD_M)
     val busDisplayThresholdMin by settingsStore.busDisplayThresholdMin.collectAsState(initial = DEFAULT_BUS_DISPLAY_THRESHOLD_MIN)
+    val routeLines by settingsStore.routeLines.collectAsState(initial = false)
+    val routeLineDistanceM by settingsStore.routeLineDistanceM.collectAsState(initial = DEFAULT_ROUTE_LINE_DISTANCE_M)
 
     val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
     val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
@@ -275,6 +277,50 @@ fun SettingsScreen(
 
             // ── Map ──────────────────────────────────────────────────────────
             SectionHeader("Map")
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Show route lines", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Draw the road each shown bus follows. Several routes share a street, so " +
+                            "the lines overlap where they run together.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = routeLines,
+                    onCheckedChange = { on -> scope.launch { settingsStore.setRouteLines(on) } },
+                )
+            }
+            if (routeLines) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Text("Route line length", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "How far ahead of each bus the line is drawn. City-centre stops are " +
+                            "roughly 135-380m apart.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Slider(
+                            value = routeLineDistanceM.toFloat(),
+                            onValueChange = { scope.launch { settingsStore.setRouteLineDistanceM(it.toInt()) } },
+                            valueRange = MIN_ROUTE_LINE_DISTANCE_M.toFloat()..MAX_ROUTE_LINE_DISTANCE_M.toFloat(),
+                            steps = 28,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "$routeLineDistanceM m",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.width(64.dp),
+                        )
+                    }
+                }
+            }
+
             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                 Text("Bus display threshold", style = MaterialTheme.typography.bodyLarge)
                 Text(

@@ -252,6 +252,8 @@ class PaletteStore(private val context: Context) {
 
 private val LOCATION_AWARE_KEY = booleanPreferencesKey("location_aware")
 private val HIDE_FAR_STOPS_KEY = booleanPreferencesKey("hide_far_stops")
+private val ROUTE_LINES_KEY = booleanPreferencesKey("route_lines")
+private val ROUTE_LINE_DISTANCE_KEY = intPreferencesKey("route_line_distance_m")
 private val BUS_DISPLAY_THRESHOLD_KEY = intPreferencesKey("bus_display_threshold_min")
 private val FAR_STOP_THRESHOLD_KEY = intPreferencesKey("far_stop_threshold_m")
 
@@ -260,6 +262,14 @@ const val DEFAULT_FAR_STOP_THRESHOLD_M = 5000
 
 /** Default: only render a bus marker once it's due within this many minutes. */
 const val DEFAULT_BUS_DISPLAY_THRESHOLD_MIN = 60
+
+/**
+ * How far ahead of a bus its route line is drawn. Default from the data: city-centre stops sit
+ * 135-380m apart, so 700m is roughly two stops.
+ */
+const val DEFAULT_ROUTE_LINE_DISTANCE_M = 700
+const val MIN_ROUTE_LINE_DISTANCE_M = 100
+const val MAX_ROUTE_LINE_DISTANCE_M = 3000
 
 class SettingsStore(private val context: Context) {
     val locationAware: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -276,6 +286,26 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setHideFarStops(enabled: Boolean) {
         context.dataStore.edit { it[HIDE_FAR_STOPS_KEY] = enabled }
+    }
+
+    /** Draw each shown bus's road geometry on the stop map. Off by default — several routes
+     *  along one street overlap into a thick smear, so it's opt-in. */
+    val routeLines: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[ROUTE_LINES_KEY] ?: false
+    }
+
+    suspend fun setRouteLines(enabled: Boolean) {
+        context.dataStore.edit { it[ROUTE_LINES_KEY] = enabled }
+    }
+
+    val routeLineDistanceM: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[ROUTE_LINE_DISTANCE_KEY] ?: DEFAULT_ROUTE_LINE_DISTANCE_M
+    }
+
+    suspend fun setRouteLineDistanceM(metres: Int) {
+        context.dataStore.edit {
+            it[ROUTE_LINE_DISTANCE_KEY] = metres.coerceIn(MIN_ROUTE_LINE_DISTANCE_M, MAX_ROUTE_LINE_DISTANCE_M)
+        }
     }
 
     val farStopThresholdM: Flow<Int> = context.dataStore.data.map { prefs ->

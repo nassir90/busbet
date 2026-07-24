@@ -55,6 +55,8 @@ data class TripStop(
     @SerializedName("stop_id") val stopId: String,
     @SerializedName("stop_code") val stopCode: String,
     @SerializedName("stop_name") val stopName: String,
+    @SerializedName("stop_lat") val stopLat: Double? = null,
+    @SerializedName("stop_lon") val stopLon: Double? = null,
     @SerializedName("scheduled_arrival") val scheduledArrival: String,
     @SerializedName("scheduled_departure") val scheduledDeparture: String,
     @SerializedName("estimated_arrival") val estimatedArrival: String?,
@@ -70,6 +72,15 @@ data class VehiclePosition(
     val lon: Double,
     val bearing: Float?,          // null until second poll gives us a heading
     @SerializedName("delay_seconds") val delaySeconds: Int?,
+    /** Scheduled first departure / last arrival of the whole trip, "HH:MM:SS". */
+    @SerializedName("first_departure") val firstDeparture: String? = null,
+    @SerializedName("last_arrival") val lastArrival: String? = null,
+)
+
+/** One point of a route's road geometry. Already decimated server-side. */
+data class ShapePoint(
+    val lat: Double,
+    val lon: Double,
 )
 
 data class TripDetail(
@@ -110,6 +121,12 @@ interface GtfsApi {
         @Path("stopCode") stopCode: String,
         @Query("time") time: Long? = null,
     ): List<VehiclePosition>
+
+    @GET("vehicles/trip/{tripId}")
+    suspend fun tripVehicle(@Path("tripId") tripId: String): VehiclePosition
+
+    @GET("shapes/trip/{tripId}")
+    suspend fun tripShape(@Path("tripId") tripId: String): List<ShapePoint>
 
     @GET("stop-routes/{stopCode}")
     suspend fun stopRoutes(@Path("stopCode") stopCode: String): List<String>

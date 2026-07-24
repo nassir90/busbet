@@ -14,6 +14,7 @@ import android.graphics.drawable.Drawable
 class BusMarkerDrawable(
     private val label: String,
     fillColor: Int,
+    textColor: Int,
     private val bearing: Float?,
     density: Float,
 ) : Drawable() {
@@ -30,7 +31,7 @@ class BusMarkerDrawable(
     }
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fillColor }
     private val textPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFFFFFFFF.toInt()
+        color     = textColor
         textSize  = 9f * density
         typeface  = android.graphics.Typeface.DEFAULT_BOLD
         textAlign = Paint.Align.CENTER

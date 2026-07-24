@@ -36,7 +36,7 @@ class ApiRoutesTest {
     @Test
     fun `GET settings returns the service snapshot`() = testApplication {
         val fake = FakeServices(
-            settings = FakeSettings(SettingsSnapshot(true, false, 30, 5000)),
+            settings = FakeSettings(SettingsSnapshot(true, false, 30, 5000, false, 700)),
         )
         application {
             routing { route("/api") { apiRoutes(fake) } }
@@ -48,7 +48,7 @@ class ApiRoutesTest {
 
     @Test
     fun `PATCH settings forwards each provided field to the service`() = testApplication {
-        val settings = FakeSettings(SettingsSnapshot(false, false, 10, 1000))
+        val settings = FakeSettings(SettingsSnapshot(false, false, 10, 1000, false, 700))
         application {
             routing { route("/api") { apiRoutes(FakeServices(settings = settings)) } }
         }
@@ -79,6 +79,12 @@ private class FakeSettings(var snapshot: SettingsSnapshot) : SettingsService {
     }
     override suspend fun setFarStopThresholdM(metres: Int) {
         snapshot = snapshot.copy(farStopThresholdM = metres)
+    }
+    override suspend fun setRouteLines(enabled: Boolean) {
+        snapshot = snapshot.copy(routeLines = enabled)
+    }
+    override suspend fun setRouteLineDistanceM(metres: Int) {
+        snapshot = snapshot.copy(routeLineDistanceM = metres)
     }
 }
 
@@ -117,7 +123,7 @@ private class FakeBackendConfig : BackendConfigService {
 }
 
 private class FakeServices(
-    override val settings: SettingsService = FakeSettings(SettingsSnapshot(false, false, 10, 1000)),
+    override val settings: SettingsService = FakeSettings(SettingsSnapshot(false, false, 10, 1000, false, 700)),
     override val favourites: FavouritesService = FakeFavourites(),
     override val notificationWindows: NotificationWindowService = FakeNotificationWindows(),
     override val transit: TransitQueryService = FakeTransit(),
