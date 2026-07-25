@@ -6,7 +6,7 @@
     android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_loading"
-    android:configure="net.uzoukwu.tfiapp.StopWidgetConfigActivity"
+    android:configure="iompar.mpts.ie.StopWidgetConfigActivity"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:previewLayout="@layout/widget_loading" />

@@ -10,11 +10,11 @@ def localPropsFile = rootProject.file('local.properties')
 if (localPropsFile.exists()) localPropsFile.withInputStream { localProps.load(it) }
 
 android {
-    namespace 'net.uzoukwu.tfiapp'
+    namespace 'iompar.mpts.ie'
     compileSdk 35
 
     defaultConfig {
-        applicationId "net.uzoukwu.tfiapp"
+        applicationId "iompar.mpts.ie"
         minSdk 24
         targetSdk 35
         versionCode 1
