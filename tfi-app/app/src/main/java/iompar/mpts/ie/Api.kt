@@ -18,6 +18,7 @@ data class Stop(
     @SerializedName("stop_name") val stopName: String,
     @SerializedName("stop_lat") val stopLat: Double? = null,
     @SerializedName("stop_lon") val stopLon: Double? = null,
+    @SerializedName("routes") val routes: List<String> = emptyList(),
 )
 
 data class Departure(

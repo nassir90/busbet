@@ -1,7 +1,9 @@
 package iompar.mpts.ie
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,9 +26,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -72,6 +76,9 @@ fun HomeScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var stopResults by remember { mutableStateOf<List<Stop>>(emptyList()) }
     var routeResults by remember { mutableStateOf<List<RouteDirection>>(emptyList()) }
+    // Route short names for history rows, fetched lazily and cached. Live search results
+    // carry their own `routes` from the search endpoint, so only history needs this.
+    val stopServices = remember { mutableStateMapOf<String, List<String>>() }
     var searchError by remember { mutableStateOf<String?>(null) }
     var searchFocused by remember { mutableStateOf(false) }
 
@@ -246,8 +253,17 @@ fun HomeScreen(
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         if (matchingHistory.isNotEmpty()) {
                             items(matchingHistory, key = { "history:${it.isRoute}:${it.id}" }) { h ->
+                                if (!h.isRoute) {
+                                    LaunchedEffect(h.id) {
+                                        if (h.id !in stopServices) {
+                                            runCatching { Api.service.stopRoutes(h.id) }
+                                                .onSuccess { stopServices[h.id] = it.sorted() }
+                                        }
+                                    }
+                                }
                                 CompactSearchRow(
                                     label = h.label,
+                                    services = if (h.isRoute) null else stopServices[h.id].orEmpty(),
                                     leading = {
                                         Icon(
                                             Icons.Filled.History,
@@ -306,6 +322,7 @@ fun HomeScreen(
                             items(stopResults) { s ->
                                 CompactSearchRow(
                                     label = "${s.stopCode}  ${s.stopName}",
+                                    services = s.routes,
                                     onClick = {
                                         scope.launch {
                                             historyStore.record(
@@ -446,6 +463,7 @@ private fun RenameFavouriteDialog(
 private fun CompactSearchRow(
     label: String,
     onClick: () -> Unit,
+    services: List<String>? = null,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -467,11 +485,51 @@ private fun CompactSearchRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (!services.isNullOrEmpty()) {
+            Spacer(Modifier.width(8.dp))
+            val shown = services.take(5)
+            val overflow = services.size > shown.size
+            val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+            // Chips read left-to-right (route codes), but the "…" overflow marker sits on the
+            // leading edge: left in RTL, right in LTR.
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (overflow && rtl) EllipsisMark()
+                    shown.forEach { ServiceChip(it) }
+                    if (overflow && !rtl) EllipsisMark()
+                }
+            }
+        }
         if (trailing != null) {
             Spacer(Modifier.width(12.dp))
             trailing()
         }
     }
+}
+
+@Composable
+private fun EllipsisMark() {
+    Text(
+        "…",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun ServiceChip(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onPrimary,
+        maxLines = 1,
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
