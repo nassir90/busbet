@@ -4,6 +4,8 @@ export interface Stop {
 	stop_name: string;
 	stop_lat?: number;
 	stop_lon?: number;
+	/** Distinct route short names that serve this stop. Populated by search; may be absent elsewhere. */
+	routes?: string[];
 }
 
 export interface StopTime {

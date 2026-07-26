@@ -24,12 +24,27 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 		async searchStops(query: string) {
 			const like = `%${query.toUpperCase()}%`;
 			const r = await db.execute({
-				sql: `SELECT * FROM stops
-				      WHERE UPPER(stop_name) LIKE ? OR stop_code LIKE ?
+				sql: `SELECT s.stop_id, s.stop_code, s.stop_name, s.stop_lat, s.stop_lon,
+				             (SELECT GROUP_CONCAT(DISTINCT r.route_short_name)
+				              FROM stop_times st
+				              JOIN trips t ON t.trip_id = st.trip_id
+				              JOIN routes r ON r.route_id = t.route_id
+				              WHERE st.stop_id = s.stop_id) AS routes
+				      FROM stops s
+				      WHERE UPPER(s.stop_name) LIKE ? OR s.stop_code LIKE ?
 				      LIMIT 20`,
 				args: [like, like]
 			});
-			return r.rows as unknown as Stop[];
+			return r.rows.map((row) => ({
+				stop_id: row.stop_id as string,
+				stop_code: row.stop_code as string,
+				stop_name: row.stop_name as string,
+				stop_lat: (row.stop_lat as number | null) ?? undefined,
+				stop_lon: (row.stop_lon as number | null) ?? undefined,
+				routes: row.routes
+					? (row.routes as string).split(',').sort((a, b) => a.localeCompare(b))
+					: []
+			})) as Stop[];
 		},
 
 		async getStopByCode(code: string) {
