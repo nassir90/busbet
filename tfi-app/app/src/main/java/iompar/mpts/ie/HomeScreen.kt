@@ -26,11 +26,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -456,83 +454,6 @@ private fun RenameFavouriteDialog(
         },
         confirmButton = { TextButton(onClick = { onConfirm(text) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/**
- * A search result line. Material3's ListItem enforces a 56dp minimum height and a bodyLarge
- * headline, which is far more room than a one-line stop name needs in a 320dp dropdown.
- */
-@Composable
-private fun CompactSearchRow(
-    label: String,
-    onClick: () -> Unit,
-    services: List<String>? = null,
-    leading: (@Composable () -> Unit)? = null,
-    trailing: (@Composable () -> Unit)? = null,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (leading != null) {
-            leading()
-            Spacer(Modifier.width(12.dp))
-        }
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (!services.isNullOrEmpty()) {
-            Spacer(Modifier.width(8.dp))
-            val shown = services.take(5)
-            val overflow = services.size > shown.size
-            val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-            // Chips read left-to-right (route codes), but the "…" overflow marker sits on the
-            // leading edge: left in RTL, right in LTR.
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (overflow && rtl) EllipsisMark()
-                    shown.forEach { ServiceChip(it) }
-                    if (overflow && !rtl) EllipsisMark()
-                }
-            }
-        }
-        if (trailing != null) {
-            Spacer(Modifier.width(12.dp))
-            trailing()
-        }
-    }
-}
-
-@Composable
-private fun EllipsisMark() {
-    Text(
-        "…",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-@Composable
-private fun ServiceChip(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onPrimary,
-        maxLines = 1,
-        modifier = Modifier
-            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
 

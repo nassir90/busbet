@@ -164,21 +164,25 @@ fun NotificationWindowSheet(
                     } else null,
                 )
                 if (stopResults.isNotEmpty()) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        stopResults.forEach { stop ->
-                            ListItem(
-                                headlineContent = { Text(stop.stopName) },
-                                supportingContent = { Text(stop.stopCode) },
-                                modifier = Modifier.clickable {
-                                    stopCode    = stop.stopCode
-                                    stopName    = stop.stopName
-                                    stopQuery   = stop.stopName
-                                    stopResults = emptyList()
-                                    routes      = emptyList()
-                                    availRoutes = emptyList()
-                                },
-                            )
-                            HorizontalDivider()
+                    // Same presentation as the home-screen stop search: a compact row with the
+                    // stop's route chips trailing the "code  name" label.
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            stopResults.forEachIndexed { i, stop ->
+                                CompactSearchRow(
+                                    label = "${stop.stopCode}  ${stop.stopName}",
+                                    services = stop.routes,
+                                    onClick = {
+                                        stopCode    = stop.stopCode
+                                        stopName    = stop.stopName
+                                        stopQuery   = stop.stopName
+                                        stopResults = emptyList()
+                                        routes      = emptyList()
+                                        availRoutes = emptyList()
+                                    },
+                                )
+                                if (i < stopResults.lastIndex) HorizontalDivider()
+                            }
                         }
                     }
                 }
