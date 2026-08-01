@@ -76,9 +76,8 @@ fun HomeScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var stopResults by remember { mutableStateOf<List<Stop>>(emptyList()) }
     var routeResults by remember { mutableStateOf<List<RouteDirection>>(emptyList()) }
-    // Route short names for history rows, fetched lazily and cached. Live search results
-    // carry their own `routes` from the search endpoint, so only history needs this.
-    val stopServices = remember { mutableStateMapOf<String, List<String>>() }
+    // Fallback for history entries recorded before routes were persisted (empty h.routes).
+    val legacyStopServices = remember { mutableStateMapOf<String, List<String>>() }
     var searchError by remember { mutableStateOf<String?>(null) }
     var searchFocused by remember { mutableStateOf(false) }
 
@@ -253,17 +252,21 @@ fun HomeScreen(
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         if (matchingHistory.isNotEmpty()) {
                             items(matchingHistory, key = { "history:${it.isRoute}:${it.id}" }) { h ->
-                                if (!h.isRoute) {
+                                if (!h.isRoute && h.routes.isNullOrEmpty()) {
                                     LaunchedEffect(h.id) {
-                                        if (h.id !in stopServices) {
+                                        if (h.id !in legacyStopServices) {
                                             runCatching { Api.service.stopRoutes(h.id) }
-                                                .onSuccess { stopServices[h.id] = it.sorted() }
+                                                .onSuccess { legacyStopServices[h.id] = it.sorted() }
                                         }
                                     }
                                 }
                                 CompactSearchRow(
                                     label = h.label,
-                                    services = if (h.isRoute) null else stopServices[h.id].orEmpty(),
+                                    services = when {
+                                        h.isRoute -> null
+                                        !h.routes.isNullOrEmpty() -> h.routes
+                                        else -> legacyStopServices[h.id].orEmpty()
+                                    },
                                     leading = {
                                         Icon(
                                             Icons.Filled.History,
@@ -330,6 +333,7 @@ fun HomeScreen(
                                                     isRoute = false,
                                                     id = s.stopCode,
                                                     label = "${s.stopCode}  ${s.stopName}",
+                                                    routes = s.routes,
                                                 )
                                             )
                                         }

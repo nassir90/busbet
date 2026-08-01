@@ -17,6 +17,8 @@ data class SearchHistoryEntry(
     val label: String,
     val routeShortName: String? = null,
     val directionId: Int? = null,
+    /** Route short names serving a stop entry, captured from the search result at record time. */
+    val routes: List<String>? = null,
 )
 
 private val HISTORY_KEY = stringPreferencesKey("search_history")
