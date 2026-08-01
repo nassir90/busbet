@@ -37,7 +37,7 @@ fun StopScreen(
     onBack: () -> Unit,
     onOpenTrip: (tripId: String, fromStopCode: String?) -> Unit,
     onOpenRoute: (route: String, direction: Int) -> Unit = { _, _ -> },
-    onOpenNotifications: () -> Unit = {},
+    onOpenNotifications: (stopCode: String, stopName: String) -> Unit = { _, _ -> },
     onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
 ) {
     val context = LocalContext.current
@@ -153,7 +153,7 @@ fun StopScreen(
             actions = {
                 if (stale) StaleBadge()
                 TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
-                IconButton(onClick = onOpenNotifications) {
+                IconButton(onClick = { onOpenNotifications(code, stop?.stopName ?: code) }) {
                     Icon(
                         Icons.Filled.Notifications,
                         contentDescription = "Notifications",

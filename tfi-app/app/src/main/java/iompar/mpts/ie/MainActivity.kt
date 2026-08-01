@@ -25,11 +25,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 
 /** A request (from a home-screen widget tap) to jump straight to a stop's board. */
 data class WidgetStopRequest(val stopCode: String, val seq: Int)
+
+/** A request (from a stop screen's notification bell) to open the create sheet pre-filled with a stop. */
+data class NotifStopRequest(val code: String, val name: String, val seq: Int)
 
 class MainActivity : ComponentActivity() {
     private var widgetRequestSeq = 0
@@ -105,6 +109,15 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
     val stack = remember { mutableStateListOf<Screen>() }
     val pop = { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) else Unit }
 
+    // Set when a stop screen's bell is tapped; consumed by NotificationScreen to open a pre-filled
+    // create sheet. The seq makes re-tapping the same stop a distinct request.
+    var notifStopSeq by remember { mutableStateOf(0) }
+    var notifStopRequest by remember { mutableStateOf<NotifStopRequest?>(null) }
+    val openNotificationsForStop: (String, String) -> Unit = { code, name ->
+        notifStopRequest = NotifStopRequest(code, name, notifStopSeq++)
+        scope.launch { pagerState.animateScrollToPage(1) }
+    }
+
     // A widget tap should always land on that stop's board, replacing whatever was on
     // screen — including re-firing when the same stop is tapped twice in a row, hence
     // the incrementing seq making each request distinct for LaunchedEffect's key.
@@ -133,7 +146,10 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
     // be mistaken for a page transition to the notifications screen.
     HorizontalPager(state = pagerState, userScrollEnabled = false, modifier = Modifier.fillMaxSize()) { page ->
         if (page == 1) {
-            NotificationScreen()
+            NotificationScreen(
+                stopRequest = notifStopRequest,
+                onStopRequestHandled = { notifStopRequest = null },
+            )
             return@HorizontalPager
         }
 
@@ -180,7 +196,7 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
                     onBack = { pop() },
                     onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
                     onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
-                    onOpenNotifications = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    onOpenNotifications = openNotificationsForStop,
                     onReport = { d, stopCode, stopName ->
                         stack.add(
                             Screen.Report(

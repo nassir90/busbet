@@ -60,7 +60,10 @@ class NotificationDraft {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationScreen() {
+fun NotificationScreen(
+    stopRequest: NotifStopRequest? = null,
+    onStopRequestHandled: () -> Unit = {},
+) {
     val context   = LocalContext.current
     val store     = remember { NotificationWindowStore(context) }
     val windows   by store.flow.collectAsState(initial = emptyList())
@@ -71,6 +74,18 @@ fun NotificationScreen() {
     var editTarget  by remember { mutableStateOf<NotificationWindow?>(null) }
     var showCreate  by remember { mutableStateOf(false) }
     val createDraft = remember { NotificationDraft() }
+
+    // Opened from a stop's notification bell: pre-fill the create sheet with that stop. Routes are
+    // cleared because they belong to whatever stop the draft last held.
+    LaunchedEffect(stopRequest?.seq) {
+        val req = stopRequest ?: return@LaunchedEffect
+        editTarget = null
+        createDraft.stopCode = req.code
+        createDraft.stopName = req.name
+        createDraft.routes = emptyList()
+        showCreate = true
+        onStopRequestHandled()
+    }
 
     val visibleDays = remember(viewMode, selectedDay) {
         if (viewMode == CalendarViewMode.WEEK) (1..7).toList() else listOf(selectedDay)
