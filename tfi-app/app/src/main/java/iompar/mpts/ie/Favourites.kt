@@ -16,6 +16,8 @@ data class Favourite(
     val collapsed: Boolean = false,
     val lat: Double? = null,
     val lon: Double? = null,
+    /** Route short names hidden from this stop's departures; null/empty means show every route. */
+    val hiddenRoutes: List<String>? = null,
 ) {
     /** Custom name if the user set one, otherwise the real stop name. */
     val displayName: String get() = customName?.takeIf { it.isNotBlank() } ?: name
@@ -49,6 +51,11 @@ class FavouritesStore(private val context: Context) {
 
     suspend fun setCollapsed(code: String, collapsed: Boolean) = update { current ->
         current.map { if (it.code == code) it.copy(collapsed = collapsed) else it }
+    }
+
+    /** Hides the given route short names from this stop's departures; empty clears the filter. */
+    suspend fun setHiddenRoutes(code: String, hidden: List<String>) = update { current ->
+        current.map { if (it.code == code) it.copy(hiddenRoutes = hidden.takeIf { h -> h.isNotEmpty() }) else it }
     }
 
     suspend fun reorder(codes: List<String>) = update { current ->

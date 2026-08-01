@@ -501,16 +501,22 @@ private fun FavouriteCard(
     var peek by remember(favourite.code, autoCollapsed) { mutableStateOf(false) }
     val collapsed = if (autoCollapsed) !peek else favourite.collapsed
 
-    var deps by remember(favourite.code, timeSec) {
-        mutableStateOf(if (timeSec == null) DeparturesCache.get(favourite.code)?.departures?.take(3) else null)
+    val hiddenRoutes = favourite.hiddenRoutes?.toSet() ?: emptySet()
+    var deps by remember(favourite.code, timeSec, hiddenRoutes) {
+        mutableStateOf(
+            if (timeSec == null)
+                DeparturesCache.get(favourite.code)?.departures
+                    ?.filter { it.routeShortName !in hiddenRoutes }?.take(3)
+            else null
+        )
     }
     var initialError by remember(favourite.code, timeSec) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(favourite.code, refreshKey, timeSec) {
+    LaunchedEffect(favourite.code, refreshKey, timeSec, hiddenRoutes) {
         while (true) {
             runCatching { Api.service.departures(favourite.code, timeSec) }
                 .onSuccess {
-                    deps = it.departures.take(3)
+                    deps = it.departures.filter { d -> d.routeShortName !in hiddenRoutes }.take(3)
                     if (timeSec == null) DeparturesCache.put(favourite.code, it)
                     initialError = null
                     onStaleChanged(false)

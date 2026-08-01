@@ -8,9 +8,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -94,6 +96,21 @@ fun StopScreen(
     val isFavourite = favourites.any { it.code == code }
     val title = data?.stop?.stopName ?: "Stop $code"
     var showTimePanel by remember { mutableStateOf(false) }
+    var showFilter by remember { mutableStateOf(false) }
+
+    // Route filter. Persisted on the favourite (so the home card honours it too); mirrored to local
+    // state so the list and checkboxes respond instantly even before the store round-trips, and for
+    // stops that aren't favourited yet.
+    val persistedHidden = favourites.firstOrNull { it.code == code }?.hiddenRoutes ?: emptyList()
+    var hiddenRoutes by remember(code) { mutableStateOf(persistedHidden.toSet()) }
+    LaunchedEffect(persistedHidden) { hiddenRoutes = persistedHidden.toSet() }
+
+    // Every route that serves this stop, for the filter dialog. The departures window only covers
+    // the next ~105 min, so a route with no imminent trip would otherwise be unlisted.
+    var stopRoutes by remember(code) { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(code) {
+        runCatching { Api.service.stopRoutes(code) }.onSuccess { stopRoutes = it.sorted() }
+    }
 
     val stop = data?.stop
     Scaffold(topBar = {
@@ -143,6 +160,13 @@ fun StopScreen(
                         tint = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
+                IconButton(onClick = { showFilter = true }) {
+                    Icon(
+                        if (hiddenRoutes.isEmpty()) Icons.Outlined.FilterAlt else Icons.Filled.FilterAlt,
+                        contentDescription = "Filter routes",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             },
         )
     }) { padding ->
@@ -157,6 +181,7 @@ fun StopScreen(
             // Map sits at the top, just below the app bar
             if (stop?.stopLat != null && stop.stopLon != null) {
                 val shownVehicles = vehicles.filter { v ->
+                    if (v.routeShortName in hiddenRoutes) return@filter false
                     val due = dueMinutesFor(v, data?.departures, nowMins)
                     due == null || due <= busDisplayThresholdMin
                 }
@@ -203,13 +228,15 @@ fun StopScreen(
                 onRefresh = { isRefreshing = true; refreshKey++ },
                 modifier = Modifier.weight(1f),
             ) {
+                val shownDepartures = data?.departures?.filter { it.routeShortName !in hiddenRoutes } ?: emptyList()
                 when {
                     initialError != null && data == null -> EmptyMessage("Could not load departures.\n$initialError")
                     data == null -> EmptyMessage("Loading…")
                     data!!.departures.isEmpty() -> EmptyMessage("No departures in the next 105 minutes.")
+                    shownDepartures.isEmpty() -> EmptyMessage("No departures for the routes you've kept visible.")
                     else -> {
                         LazyColumn(Modifier.fillMaxSize()) {
-                            items(data!!.departures) { d ->
+                            items(shownDepartures) { d ->
                                 DepartureRow(
                                     d,
                                     nowMins = nowMins,
@@ -225,6 +252,78 @@ fun StopScreen(
             }
         }
     }
+
+    if (showFilter) {
+        // Fall back to the routes visible in the current departures if the stop-routes lookup
+        // hasn't landed (or failed), so the dialog is never empty when there's clearly traffic.
+        val routes = stopRoutes.ifEmpty {
+            data?.departures?.map { it.routeShortName }?.distinct()?.sorted() ?: emptyList()
+        }
+        RouteFilterDialog(
+            routes = routes,
+            hidden = hiddenRoutes,
+            isFavourite = isFavourite,
+            onToggle = { route ->
+                hiddenRoutes = if (route in hiddenRoutes) hiddenRoutes - route else hiddenRoutes + route
+                scope.launch { favStore.setHiddenRoutes(code, hiddenRoutes.toList()) }
+            },
+            onShowAll = {
+                hiddenRoutes = emptySet()
+                scope.launch { favStore.setHiddenRoutes(code, emptyList()) }
+            },
+            onDismiss = { showFilter = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun RouteFilterDialog(
+    routes: List<String>,
+    hidden: Set<String>,
+    isFavourite: Boolean,
+    onToggle: (route: String) -> Unit,
+    onShowAll: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Filter routes") },
+        text = {
+            Column {
+                if (!isFavourite) {
+                    Text(
+                        "Add this stop to favourites to keep this filter.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+                if (routes.isEmpty()) {
+                    Text("No routes to filter here.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    // Toggle chips, mirroring the day filter in the notifications pane: a selected
+                    // (accent) chip is a visible route; deselect to hide it.
+                    FlowRow(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        routes.forEach { r ->
+                            FilterChip(
+                                selected = r !in hidden,
+                                onClick = { onToggle(r) },
+                                label = { Text(r) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = {
+            if (hidden.isNotEmpty()) TextButton(onClick = onShowAll) { Text("Show all") }
+        },
+    )
 }
 
 @Composable
