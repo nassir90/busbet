@@ -16,12 +16,14 @@ class BootReceiver : BroadcastReceiver() {
             NotificationScheduler.reschedule(context)
             BusWatchScheduler.rescheduleAll(context)
 
-            // Restart the on-device server if it was left enabled.
+            // Bring the on-device server back up only if the user opted into start-on-boot. This is
+            // deliberately separate from the "enabled" toggle: by default a reboot leaves the server
+            // down (starting it here is also what tripped the dataSync-from-BOOT_COMPLETED ban).
             val appContext = context.applicationContext
             val pending = goAsync()
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    if (ServerSettingsStore(appContext).enabled.first()) {
+                    if (ServerSettingsStore(appContext).startOnBoot.first()) {
                         OnDeviceServerService.start(appContext)
                     }
                 } finally {

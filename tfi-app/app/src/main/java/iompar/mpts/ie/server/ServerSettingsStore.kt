@@ -30,6 +30,7 @@ enum class BindMode {
 }
 
 private val SERVER_ENABLED_KEY = booleanPreferencesKey("server_enabled")
+private val SERVER_START_ON_BOOT_KEY = booleanPreferencesKey("server_start_on_boot")
 private val SERVER_BIND_MODE_KEY = stringPreferencesKey("server_bind_mode")
 private val SERVER_BIND_LAN_KEY = booleanPreferencesKey("server_bind_lan") // legacy, pre-BindMode
 private val SERVER_PORT_KEY = intPreferencesKey("server_port")
@@ -42,6 +43,9 @@ private val SERVER_PORT_KEY = intPreferencesKey("server_port")
 class ServerSettingsStore(private val context: Context) {
     val enabled: Flow<Boolean> = context.dataStore.data.map { it[SERVER_ENABLED_KEY] ?: false }
 
+    /** Whether to bring the server back up after a reboot. Off by default: a reboot leaves it down. */
+    val startOnBoot: Flow<Boolean> = context.dataStore.data.map { it[SERVER_START_ON_BOOT_KEY] ?: false }
+
     val bindMode: Flow<BindMode> = context.dataStore.data.map { prefs ->
         prefs[SERVER_BIND_MODE_KEY]?.let { runCatching { BindMode.valueOf(it) }.getOrNull() }
         // Fall back to the legacy boolean so existing installs keep their choice.
@@ -52,6 +56,10 @@ class ServerSettingsStore(private val context: Context) {
 
     suspend fun setEnabled(value: Boolean) {
         context.dataStore.edit { it[SERVER_ENABLED_KEY] = value }
+    }
+
+    suspend fun setStartOnBoot(value: Boolean) {
+        context.dataStore.edit { it[SERVER_START_ON_BOOT_KEY] = value }
     }
 
     suspend fun setBindMode(value: BindMode) {

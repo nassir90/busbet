@@ -414,6 +414,7 @@ private fun ServerSection(store: ServerSettingsStore) {
     val scope = rememberCoroutineScope()
 
     val enabled by store.enabled.collectAsState(initial = false)
+    val startOnBoot by store.startOnBoot.collectAsState(initial = false)
     val bindMode by store.bindMode.collectAsState(initial = BindMode.LOOPBACK)
     val port by store.port.collectAsState(initial = DEFAULT_SERVER_PORT)
 
@@ -449,6 +450,24 @@ private fun ServerSection(store: ServerSettingsStore) {
                     if (on) OnDeviceServerService.start(context) else OnDeviceServerService.stop(context)
                 }
             },
+        )
+    }
+
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Start on boot", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Bring the server back up after a reboot. Off by default.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = startOnBoot,
+            onCheckedChange = { on -> scope.launch { store.setStartOnBoot(on) } },
         )
     }
 

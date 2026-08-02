@@ -36,8 +36,18 @@ class OnDeviceServerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Android requires startForeground() promptly after startForegroundService().
-        startForeground(FOREGROUND_NOTIF_ID, buildNotification("Starting on-device server…"))
+        // Android requires startForeground() promptly after startForegroundService(), but the OS can
+        // still refuse the promotion (background-start rules, timeouts) and throws an
+        // IllegalStateException subclass. Treat that as "can't run now": stand down instead of
+        // crashing the process (this is what surfaced as Sentry ANDROID-J from BOOT_COMPLETED).
+        try {
+            startForeground(FOREGROUND_NOTIF_ID, buildNotification("Starting on-device server…"))
+        } catch (e: IllegalStateException) {
+            android.util.Log.w("tfi", "on-device server foreground start refused", e)
+            io.sentry.Sentry.captureException(e)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (appServer == null) {
             scope.launch {
                 val store = ServerSettingsStore(applicationContext)
