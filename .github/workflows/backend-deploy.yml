@@ -1,0 +1,114 @@
+name: Backend Deploy
+
+# MANUAL ONLY. There is deliberately no `push:`, `pull_request:` or `schedule:`
+# trigger here — pushing to any branch, including master, can never start this
+# workflow. It runs only when someone clicks "Run workflow" in the Actions tab
+# (or calls the dispatch API), types the confirmation string, and the deploy
+# secrets below actually exist. Until those secrets are created, every run
+# stops at the `preflight` job without touching anything.
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Which backend to deploy"
+        type: choice
+        required: true
+        options:
+          - gtfsr-stop-times
+          - tfi-tenant-api
+        default: gtfsr-stop-times
+      confirm:
+        description: 'Type "deploy" to confirm you mean it'
+        type: string
+        required: true
+      dry_run:
+        description: "Rsync dry-run only — no restart, no changes on the box"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: backend-deploy-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight (confirmation + secrets + lockfile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation string
+        if: inputs.confirm != 'deploy'
+        run: |
+          echo "::error::Confirmation input was '${{ inputs.confirm }}', expected 'deploy'. Aborting."
+          exit 1
+
+      - name: Check deploy secrets exist
+        env:
+          # `secrets` is not available in `if:` conditions, so the guard has to
+          # live in the step body. Values are only tested for emptiness; they
+          # are never echoed.
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          missing=()
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            [ -n "${!name:-}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secrets: ${missing[*]}. Nothing was deployed."
+            exit 1
+          fi
+          echo "All deploy secrets are present."
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate lockfile installs cleanly
+        working-directory: ${{ inputs.service }}
+        run: npm ci --no-audit --no-fund
+
+  deploy:
+    name: Deploy ${{ inputs.service }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    # Attach a protected GitHub Environment so a required reviewer can be
+    # configured; with reviewers set, even a manual dispatch waits for approval.
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: |
+          export SSH_OPTS="-i $HOME/.ssh/id_deploy -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          chmod +x scripts/deploy-backend.sh
+          ./scripts/deploy-backend.sh "${{ inputs.service }}"
+
+      - name: Scrub key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
