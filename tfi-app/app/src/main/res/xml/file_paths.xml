@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the feature-request screenshots are shareable; nothing else in filesDir is exposed. -->
+<paths>
+    <files-path name="feature-requests" path="feature-requests/" />
+</paths>

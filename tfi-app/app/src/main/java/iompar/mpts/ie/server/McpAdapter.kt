@@ -165,6 +165,25 @@ private fun buildMcpServer(services: AppServices): Server {
     }
 
     server.addTool(
+        name = "list_feature_requests",
+        description = "List the feature requests the user has filed from inside the app. Each carries " +
+            "the screen it was filed from, a JSON context blob of that screen's arguments and payload, " +
+            "the user's description, and the boxes they drew (referenced as '#1' in the description, " +
+            "given as fractions of the screenshot). The annotated screenshot is at " +
+            "GET /api/feature-requests/{id}/screenshot. Delete a request once it has been filed.",
+    ) { _ -> json(services.featureRequests.list()) }
+
+    server.addTool(
+        name = "delete_feature_request",
+        description = "Delete a feature request and its screenshot, once it has been turned into a ticket.",
+        inputSchema = schema("id" to prop("string", "Request id"), required = listOf("id")),
+    ) { req ->
+        val id = req.arguments.str("id") ?: return@addTool error("id is required")
+        services.featureRequests.delete(id)
+        json(services.featureRequests.list())
+    }
+
+    server.addTool(
         name = "search_stops",
         description = "Search stops by name or code (read-only).",
         inputSchema = schema("q" to prop("string", "Search query"), required = listOf("q")),

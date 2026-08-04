@@ -67,6 +67,20 @@
                 android:value="on_device_http_mcp_server" />
         </service>
 
+        <!--
+          Grants the share sheet read access to one feature request's screenshot at a time; the
+          Intent carries the grant, so no other app can reach the directory unasked.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
