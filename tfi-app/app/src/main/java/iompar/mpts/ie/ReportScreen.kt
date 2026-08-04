@@ -211,7 +211,7 @@ fun ReportScreen(
             // about the user rather than an inference about the vehicle, and it is filed at
             // the moment it happens, so it needs no time entry. One tap, before they sit down.
             Button(
-                onClick = { submit("boarded", LocalTime.now().format(HHMM)) },
+                onClick = { submit("boarded", serviceNow().format(HHMM)) },
                 enabled = !submitting,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
             ) { Text("I got on this bus") }
