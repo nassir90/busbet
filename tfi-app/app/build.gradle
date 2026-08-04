@@ -17,8 +17,11 @@ android {
         applicationId "iompar.mpts.ie"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        // Bumped once per ticket implemented, not once per release: Sentry groups events by
+        // release, so a version that only moves when someone remembers to move it puts weeks of
+        // unrelated builds into one bucket and makes "did that fix land?" unanswerable.
+        versionCode 2
+        versionName "1.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
