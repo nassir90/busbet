@@ -5,7 +5,11 @@
   "private": true,
   "description": "Stateful, tenant-aware write API for BusBet (arrival/cancellation reports). Consumes the read-only gtfsr-stop-times API for enrichment.",
   "scripts": {
-    "dev": "tsx server.ts"
+    "dev": "tsx server.ts",
+    "simulate": "tsx scripts/simulate-reports.ts",
+    "evaluate": "tsx scripts/evaluate-reports.ts",
+    "verify-migration": "tsx scripts/verify-migration.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0"

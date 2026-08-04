@@ -207,28 +207,42 @@ fun ReportScreen(
 
             Spacer(Modifier.weight(1f))
 
+            // The highest-value observation is "I am on this bus, now": it is ground truth
+            // about the user rather than an inference about the vehicle, and it is filed at
+            // the moment it happens, so it needs no time entry. One tap, before they sit down.
+            Button(
+                onClick = { submit("boarded", LocalTime.now().format(HHMM)) },
+                enabled = !submitting,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+            ) { Text("I got on this bus") }
+
+            Spacer(Modifier.height(12.dp))
+
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Button(
+                // "Arrived" stays time-picked: it covers the bus turning up when you did not
+                // board it, and gets filed after the fact.
+                OutlinedButton(
                     onClick = { pickArrivalTime() },
                     enabled = !submitting,
                     modifier = Modifier.weight(1f).height(56.dp),
                 ) { Text("Arrived") }
-                Button(
+                OutlinedButton(
                     onClick = { submit("cancelled", null) },
                     enabled = !submitting,
                     modifier = Modifier.weight(1f).height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
                     ),
                 ) { Text("Cancelled") }
             }
         }
     }
 }
+
+private val HHMM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 private fun toMins(hhmm: String): Int {
     val (h, m) = hhmm.split(":").map { it.toInt() }
