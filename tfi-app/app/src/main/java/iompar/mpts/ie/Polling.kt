@@ -16,6 +16,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 /** Every live board in the app refreshes on this cadence. */
 const val POLL_INTERVAL_MS = 30_000L
@@ -99,6 +100,26 @@ fun rememberBoardMinutes(pinnedSec: Long?): Int {
         } ?: live
     }
 }
+
+private val AS_OF_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+
+/**
+ * The local time a board's data is actually true for.
+ *
+ * Every "as of" in the app used to be the moment of the fetch, so pulling to refresh always
+ * printed the current clock even though nothing had changed: the realtime feed is collected once
+ * every 30 seconds, and a request answered at 12:00:29 is carrying the snapshot taken at 12:00:03.
+ *
+ * [feedTimestamp] is that snapshot's own header timestamp. Backends that predate the field leave
+ * it null, and there the fetch time is still the closest thing to an answer we have.
+ */
+fun asOfTime(feedTimestamp: Long?): LocalTime =
+    feedTimestamp
+        ?.let { java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault()).toLocalTime() }
+        ?: LocalTime.now()
+
+/** [asOfTime] rendered the way every board and widget labels it. */
+fun asOfLabel(feedTimestamp: Long?): String = asOfTime(feedTimestamp).format(AS_OF_FORMAT)
 
 /**
  * Departures for several stops, in one request where the backend supports it.

@@ -40,7 +40,6 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.flow.first
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 
 val STOP_CODE_KEY = stringPreferencesKey("stopCode")
 val STOP_NAME_KEY = stringPreferencesKey("stopName")
@@ -85,16 +84,19 @@ class StopWidget : GlanceAppWidget() {
 
         // A failed fetch must not destroy what's on screen. Fall back to the last good result
         // and mark it stale rather than blanking the widget.
-        val fresh: List<Departure>? = if (code != null) {
-            runCatching { Api.service().departures(code).departures.take(3) }.getOrNull()
+        val fresh: DeparturesResponse? = if (code != null) {
+            runCatching { Api.service().departures(code) }.getOrNull()
         } else null
-        if (fresh != null && code != null) WidgetCache.save(context, code, fresh)
+        val freshDeps = fresh?.departures?.take(3)
+        if (freshDeps != null && code != null) WidgetCache.save(context, code, freshDeps, fresh?.feedTimestamp)
 
         val cached = if (fresh == null && code != null) WidgetCache.load(context, code) else null
-        val deps = fresh ?: cached?.departures
+        val deps = freshDeps ?: cached?.departures
         val staleLabel = cached?.let { "stale · ${WidgetCache.ageLabel(it.ageMinutes)}" }
 
-        val asOf = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        // The snapshot behind the times on screen, whether that's the one just fetched or the one
+        // still sitting in the cache — never the moment this refresh happened to run.
+        val asOf = asOfLabel(fresh?.feedTimestamp ?: cached?.at)
 
         provideContent {
             WidgetUI(context, appWidgetId, code, name, deps, pal, asOf, staleLabel)

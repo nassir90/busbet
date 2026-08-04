@@ -37,7 +37,6 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.flow.first
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 
 private data class NearestPalette(
     val cardBg: Color,
@@ -107,14 +106,22 @@ class NearestFavouriteWidget : GlanceAppWidget() {
         // Per stop: a failed fetch falls back to that stop's last good result, flagged stale,
         // rather than blanking it. One stop failing no longer wipes the others either.
         val staleLabels = HashMap<String, String>()
+        // Epoch seconds each shown stop's data is true for, so the header can label the board with
+        // the snapshot instant instead of the moment this refresh ran.
+        val dataAt = ArrayList<Long>()
         val stops = nearest.map { (fav, distance) ->
-            val fresh = runCatching { Api.service().departures(fav.code).departures.take(3) }.getOrNull()
+            val fresh = runCatching { Api.service().departures(fav.code) }.getOrNull()
             if (fresh != null) {
-                WidgetCache.save(context, fav.code, fresh)
-                NearestStop(fav, fresh, distance)
+                val deps = fresh.departures.take(3)
+                WidgetCache.save(context, fav.code, deps, fresh.feedTimestamp)
+                fresh.feedTimestamp?.let { dataAt += it }
+                NearestStop(fav, deps, distance)
             } else {
                 val cached = WidgetCache.load(context, fav.code)
-                cached?.let { staleLabels[fav.code] = "stale · ${WidgetCache.ageLabel(it.ageMinutes)}" }
+                cached?.let {
+                    staleLabels[fav.code] = "stale · ${WidgetCache.ageLabel(it.ageMinutes)}"
+                    dataAt += it.at
+                }
                 NearestStop(fav, cached?.departures, distance)
             }
         }
@@ -124,7 +131,10 @@ class NearestFavouriteWidget : GlanceAppWidget() {
             Configuration.UI_MODE_NIGHT_YES
         val pal = glanceNearestPalette(appPalette.faceFor(isDark))
 
-        val asOf = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        // One header over rows that can come from different snapshots (a stop that fell back to
+        // cache is older than one that just fetched). The oldest wins, so the label never claims
+        // more freshness than the least fresh row has.
+        val asOf = asOfLabel(dataAt.minOrNull())
 
         provideContent {
             WidgetUI(context, stops, pal, asOf, staleLabels)

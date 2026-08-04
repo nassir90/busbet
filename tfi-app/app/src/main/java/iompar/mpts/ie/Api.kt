@@ -37,6 +37,14 @@ data class Departure(
 data class DeparturesResponse(
     val stop: Stop,
     val departures: List<Departure>,
+    /**
+     * Header timestamp (epoch seconds) of the GTFS-R snapshot the realtime overlay came from —
+     * the instant these times are actually true for. The collector polls on a fixed cadence, so
+     * it lags the request by up to one poll interval; the fetch time overstates freshness.
+     *
+     * Nullable: older deployments omit it, and so does a snapshot-less (schedule-only) answer.
+     */
+    @SerializedName("feed_timestamp") val feedTimestamp: Long? = null,
 )
 
 /**

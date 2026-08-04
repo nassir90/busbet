@@ -48,7 +48,7 @@ fun StopScreen(
 
     var data by remember(code) { mutableStateOf(DeparturesCache.get(code)) }
     var initialError by remember(code) { mutableStateOf<String?>(null) }
-    var lastFetched by remember(code) { mutableStateOf<LocalTime?>(null) }
+    var dataAsOf by remember(code) { mutableStateOf<LocalTime?>(null) }
     var stale by remember(code) { mutableStateOf(false) }
     var vehicles by remember(code) { mutableStateOf<List<VehiclePosition>>(emptyList()) }
     var refreshKey by remember(code) { mutableStateOf(0) }
@@ -80,7 +80,8 @@ fun StopScreen(
                     DeparturesCache.put(code, it)
                     initialError = null
                     stale = false
-                    lastFetched = LocalTime.now()
+                    // The snapshot's instant, not this fetch's — see [asOfTime].
+                    dataAsOf = asOfTime(it.feedTimestamp)
                 }
                 .onFailure {
                     if (it is CancellationException) throw it
@@ -223,7 +224,7 @@ fun StopScreen(
             ) {
                 Text("Stop $code", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.weight(1f))
-                lastFetched?.let {
+                dataAsOf?.let {
                     Text("as of ${it.format(DateTimeFormatter.ofPattern("HH:mm:ss"))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
