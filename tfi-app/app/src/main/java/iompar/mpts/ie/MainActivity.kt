@@ -122,6 +122,7 @@ val Screen.screenName: String
         is Screen.RouteView -> "RouteView"
         is Screen.TripView -> "TripView"
         is Screen.Report -> "Report"
+        is Screen.FeatureRequest -> "FeatureRequest"
     }
 
 @Composable
