@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -48,12 +49,18 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         captureWidgetStop(intent)
+        // Read synchronously, before the first frame: the real palette lives in DataStore and can
+        // only be reached from a coroutine, so seeding from it asynchronously meant every cold
+        // start painted the default purple and then re-themed. See PaletteCache.
+        val seedPalette = PaletteCache.cached(this)
         setContent {
             val context = LocalContext.current
             val paletteStore = remember { PaletteStore(context) }
-            val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
-            val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
-            val colors = buildColorScheme(resolvePalette(selectedId, customPalettes), isSystemInDarkTheme())
+            val palette by paletteStore.palette.collectAsState(initial = seedPalette)
+            val dark = isSystemInDarkTheme()
+            // Remembered: building a scheme is ~20 blends and allocations, and neither input
+            // changes on a typical recomposition.
+            val colors = remember(palette, dark) { buildColorScheme(palette, dark) }
 
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -107,7 +114,24 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
     val scope = rememberCoroutineScope()
 
     val stack = remember { mutableStateListOf<Screen>() }
-    val pop = { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) else Unit }
+
+    // Only the top screen is composed (see below), so each one's rememberSaveable state is parked
+    // here while it's off screen and restored when it comes back.
+    val stateHolder = rememberSaveableStateHolder()
+
+    /** The SaveableStateHolder key for the entry at [index]; null means the home screen. */
+    fun slotKey(index: Int): String =
+        if (index < 0) "home" else "$index:${stack[index]}"
+
+    val pop = {
+        if (stack.isNotEmpty()) {
+            // Drop the saved state with the screen: a popped entry is gone for good, and without
+            // this the holder would accumulate a bundle per screen ever visited.
+            stateHolder.removeState(slotKey(stack.lastIndex))
+            stack.removeAt(stack.lastIndex)
+            Unit
+        } else Unit
+    }
 
     // Set when a stop screen's bell is tapped; consumed by NotificationScreen to open a pre-filled
     // create sheet. The seq makes re-tapping the same stop a distinct request.
@@ -153,33 +177,44 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
             return@HorizontalPager
         }
 
-    // Home always composed underneath; every stack entry rendered above the previous one,
-    // so back navigation reveals the still-alive parent screen.
+    // Only the screen actually in front of the user is composed.
+    //
+    // Every layer used to stay in the composition, stacked in a Box. That meant each one kept its
+    // 30s poll loops running behind whatever you were looking at — opening a favourite fetched
+    // that stop's departures twice over, once from the home card still alive underneath and once
+    // from the stop board on top — and every layer was still laid out and drawn, so a three-deep
+    // stack painted the full screen four times over.
+    //
+    // SaveableStateHolder keeps each screen's rememberSaveable state (scroll positions, entered
+    // text) keyed by its stack slot, so going back still restores the screen rather than
+    // rebuilding it blank; DeparturesCache covers the data side.
+    val top = stack.lastOrNull()
     Box(Modifier.fillMaxSize()) {
-        HomeScreen(
-            settingsStore = settingsStore,
-            timeController = timeController,
-            onOpenStop = { stack.add(Screen.StopBoard(it)) },
-            onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
-            onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
-            onReport = { d, stopCode, stopName ->
-                stack.add(
-                    Screen.Report(
-                        routeShortName = d.routeShortName,
-                        stopCode = stopCode,
-                        stopName = stopName,
-                        tripId = d.tripId,
-                        scheduledDeparture = d.scheduledDeparture,
-                        estimatedDeparture = d.estimatedDeparture,
-                    )
+        // Keyed on depth as well as identity: two boards for the same stop at different depths
+        // are different screens and must not share saved state.
+        stateHolder.SaveableStateProvider(slotKey(stack.lastIndex)) {
+            when (top) {
+                null, is Screen.Home -> HomeScreen(
+                    settingsStore = settingsStore,
+                    timeController = timeController,
+                    onOpenStop = { stack.add(Screen.StopBoard(it)) },
+                    onOpenRoute = { route, dir -> stack.add(Screen.RouteView(route, dir)) },
+                    onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
+                    onReport = { d, stopCode, stopName ->
+                        stack.add(
+                            Screen.Report(
+                                routeShortName = d.routeShortName,
+                                stopCode = stopCode,
+                                stopName = stopName,
+                                tripId = d.tripId,
+                                scheduledDeparture = d.scheduledDeparture,
+                                estimatedDeparture = d.estimatedDeparture,
+                            )
+                        )
+                    },
+                    onOpenSettings = { stack.add(Screen.Settings) },
+                    onOpenNotifications = { scope.launch { pagerState.animateScrollToPage(1) } },
                 )
-            },
-            onOpenSettings = { stack.add(Screen.Settings) },
-            onOpenNotifications = { scope.launch { pagerState.animateScrollToPage(1) } },
-        )
-        stack.forEachIndexed { i, layer ->
-            when (layer) {
-                is Screen.Home -> Unit
                 is Screen.Settings -> SettingsScreen(
                     paletteStore = paletteStore,
                     settingsStore = settingsStore,
@@ -190,7 +225,7 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
                 )
                 is Screen.Privacy -> PrivacyPolicyScreen(onBack = { pop() })
                 is Screen.StopBoard -> StopScreen(
-                    code = layer.code,
+                    code = top.code,
                     timeController = timeController,
                     settingsStore = settingsStore,
                     onBack = { pop() },
@@ -211,27 +246,28 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
                     },
                 )
                 is Screen.RouteView -> RouteScreen(
-                    route = layer.route,
-                    direction = layer.direction,
+                    route = top.route,
+                    direction = top.direction,
                     onBack = { pop() },
                     onOpenStop = { stack.add(Screen.StopBoard(it)) },
                     onFlip = {
-                        stack[i] = Screen.RouteView(layer.route, if (layer.direction == 0) 1 else 0)
+                        stack[stack.lastIndex] =
+                            Screen.RouteView(top.route, if (top.direction == 0) 1 else 0)
                     },
                 )
                 is Screen.TripView -> TripScreen(
-                    tripId = layer.tripId,
-                    fromStopCode = layer.fromStopCode,
+                    tripId = top.tripId,
+                    fromStopCode = top.fromStopCode,
                     onBack = { pop() },
                     onOpenStop = { stack.add(Screen.StopBoard(it)) },
                 )
                 is Screen.Report -> ReportScreen(
-                    routeShortName = layer.routeShortName,
-                    stopCode = layer.stopCode,
-                    stopName = layer.stopName,
-                    tripId = layer.tripId,
-                    scheduledDeparture = layer.scheduledDeparture,
-                    estimatedDeparture = layer.estimatedDeparture,
+                    routeShortName = top.routeShortName,
+                    stopCode = top.stopCode,
+                    stopName = top.stopName,
+                    tripId = top.tripId,
+                    scheduledDeparture = top.scheduledDeparture,
+                    estimatedDeparture = top.estimatedDeparture,
                     onBack = { pop() },
                 )
             }

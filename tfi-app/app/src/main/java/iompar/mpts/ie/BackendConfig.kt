@@ -4,14 +4,14 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.net.URI
 
 /**
@@ -83,6 +83,9 @@ private fun overrideKey(service: BackendService) =
 
 /** DataStore-backed backend config, sharing the app's single "tfi" store like the other stores. */
 class BackendConfigStore(private val context: Context) {
+    // Every store shares the one "tfi" DataStore, so this re-emits on a write to any key in the
+    // app — including the widget departure cache. distinctUntilChanged keeps that fan-out from
+    // reaching collectors that don't care.
     val config: Flow<BackendConfig> = context.dataStore.data.map { prefs ->
         BackendConfig(
             root = prefs[BACKEND_ROOT_KEY] ?: DEFAULT_BACKEND_ROOT,
@@ -91,7 +94,7 @@ class BackendConfigStore(private val context: Context) {
                 prefs[overrideKey(service)]?.let { service to it }
             }.toMap(),
         )
-    }
+    }.distinctUntilChanged()
 
     suspend fun setRoot(value: String) {
         context.dataStore.edit { it[BACKEND_ROOT_KEY] = value.trim() }
@@ -118,21 +121,54 @@ class BackendConfigStore(private val context: Context) {
  */
 object BackendConfigHolder {
     @Volatile
-    private var snapshot: BackendConfig = BackendConfig()
+    private var snapshot: BackendConfig? = null
 
-    /** The current config. Cheap — a volatile read. */
-    val current: BackendConfig get() = snapshot
+    @Volatile
+    private var started = false
+
+    /** Completes on the collector's first emission (or on its failure, with defaults in place). */
+    private val firstLoad = CompletableDeferred<Unit>()
 
     /**
-     * Call once from [TfiApp.onCreate]. The first read is blocking (a single DataStore read, low
-     * milliseconds) so that a widget or worker running before the collector's first emission still
-     * sees persisted config rather than the default root.
+     * The current config, suspending only until the first DataStore read lands.
+     *
+     * This used to be a plain volatile read backed by a `runBlocking` first load in
+     * [TfiApp.onCreate]. That put a disk read and a protobuf decode on the main thread on the
+     * critical path of every cold start — and the cost grew with the store, which also holds the
+     * widget departure cache. Suspending here costs nothing: every caller is already in a
+     * coroutine, and after the first emission this returns without suspending at all.
+     */
+    suspend fun current(): BackendConfig {
+        snapshot?.let { return it }
+        // No Application ran (unit tests, isolated components): don't wait for a collector that
+        // will never emit — just use the defaults.
+        if (!started) return BackendConfig()
+        firstLoad.await()
+        return snapshot ?: BackendConfig()
+    }
+
+    /**
+     * Call once from [TfiApp.onCreate]. Returns immediately; the snapshot is filled in on IO and
+     * refreshed for as long as the process lives, so a Settings edit takes effect on the next
+     * request with no restart.
      */
     fun init(context: Context) {
+        if (started) return
+        started = true
         val store = BackendConfigStore(context.applicationContext)
-        runCatching { snapshot = runBlocking { store.config.first() } }
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            store.config.collect { snapshot = it }
+            try {
+                store.config.collect {
+                    snapshot = it
+                    firstLoad.complete(Unit)
+                }
+            } catch (e: Throwable) {
+                // A store that can't be read must not wedge every request behind an await that
+                // never completes — fall back to defaults and let callers proceed.
+                android.util.Log.e("tfi", "backend config collect failed; using defaults", e)
+                if (snapshot == null) snapshot = BackendConfig()
+                firstLoad.complete(Unit)
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.first
@@ -25,6 +26,17 @@ import java.time.Instant
 object WidgetCache {
     private val gson = Gson()
 
+    /**
+     * Its own DataStore, not the shared "tfi" one.
+     *
+     * Two reasons. Writes here happen on every widget refresh, and a write to the shared store
+     * re-emits to every collector in the app — so a background widget update was waking the
+     * foreground UI's favourites, history and palette flows. And this is the bulkiest thing the
+     * app persists (serialised departures per stop), which made the shared store slower to read
+     * for everyone else.
+     */
+    private val Context.widgetCacheStore by preferencesDataStore(name = "widget_cache")
+
     private fun departuresKey(code: String) = stringPreferencesKey("widgetCache:departures:$code")
     private fun fetchedAtKey(code: String) = longPreferencesKey("widgetCache:at:$code")
 
@@ -34,7 +46,7 @@ object WidgetCache {
     data class Cached(val departures: List<Departure>, val ageMinutes: Long)
 
     suspend fun save(context: Context, code: String, departures: List<Departure>) {
-        context.dataStore.edit { prefs ->
+        context.widgetCacheStore.edit { prefs ->
             prefs[departuresKey(code)] = gson.toJson(departures)
             prefs[fetchedAtKey(code)] = Instant.now().epochSecond
         }
@@ -42,7 +54,7 @@ object WidgetCache {
 
     /** The last good result for [code], or null if there has never been one. */
     suspend fun load(context: Context, code: String): Cached? {
-        val prefs = context.dataStore.data.first()
+        val prefs = context.widgetCacheStore.data.first()
         val json = prefs[departuresKey(code)] ?: return null
         val at = prefs[fetchedAtKey(code)] ?: return null
         val type = object : TypeToken<List<Departure>>() {}.type

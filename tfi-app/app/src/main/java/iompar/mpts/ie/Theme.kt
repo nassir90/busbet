@@ -11,9 +11,14 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -117,6 +122,21 @@ val PRESETS: List<AppPalette> = listOf(
             0xFF14181C, 0xFF1B1F24, 0xFFE3E5E8, 0xFFB8BCC2, 0xFFF2B8B5,
         ),
     ),
+    // Warm paper: terracotta on cream, sage for anything running early or live. Unlike the other
+    // presets the neutrals are tinted rather than grey, which is the whole point of it — so the
+    // dark face is written out in full (linkedDark = false) instead of being derived, since
+    // deriveDark would swap the warm browns for the generic neutral dark surfaces. See TFI-107.
+    AppPalette(
+        id = "preset-paper", name = "Paper", preset = true, linkedDark = false,
+        light = lightSet(
+            0xFFB05C4A, 0xFFFFFFFF, 0xFFD98E5F, 0xFF5B8266,
+            0xFFFDF6EC, 0xFFFFFCF7, 0xFF2A2320, 0xFF7A6A60, 0xFFB3261E,
+        ),
+        dark = lightSet(
+            0xFFE8A188, 0xFF3A1D14, 0xFFD98E5F, 0xFF8FBF9F,
+            0xFF17130F, 0xFF221C17, 0xFFEDE4DA, 0xFFB8A99C, 0xFFF2B8B5,
+        ),
+    ),
 )
 
 val DEFAULT_PALETTE: AppPalette get() = PRESETS[0]
@@ -209,12 +229,33 @@ private val CUSTOM_KEY = stringPreferencesKey("palette_custom_v2")
 private val paletteGson = Gson()
 private val paletteListType = object : TypeToken<List<AppPalette>>() {}.type
 
-class PaletteStore(private val context: Context) {
-    val selectedId: Flow<String> = context.dataStore.data.map { it[SELECTED_KEY] ?: DEFAULT_PALETTE.id }
+private fun parseCustom(json: String?): List<AppPalette> =
+    json?.let { runCatching { paletteGson.fromJson<List<AppPalette>>(it, paletteListType) }.getOrNull() }
+        ?: emptyList()
 
-    val customPalettes: Flow<List<AppPalette>> = context.dataStore.data.map { prefs ->
-        prefs[CUSTOM_KEY]?.let { paletteGson.fromJson<List<AppPalette>>(it, paletteListType) } ?: emptyList()
-    }
+class PaletteStore(private val context: Context) {
+    // distinctUntilChanged on the raw stored value, before parsing: every store shares one
+    // DataStore file, so this flow re-emits on a write to any key in the app — including the
+    // widget departure cache. Without the guard a background widget refresh made the foreground
+    // UI re-run Gson over the whole custom-palette list.
+    val selectedId: Flow<String> = context.dataStore.data
+        .map { it[SELECTED_KEY] }
+        .distinctUntilChanged()
+        .map { it ?: DEFAULT_PALETTE.id }
+
+    val customPalettes: Flow<List<AppPalette>> = context.dataStore.data
+        .map { it[CUSTOM_KEY] }
+        .distinctUntilChanged()
+        .map { parseCustom(it) }
+
+    /**
+     * The palette actually in use — the selection already resolved against presets and custom
+     * palettes. One collector instead of two, and it's what both the theme and [PaletteCache] want.
+     */
+    val palette: Flow<AppPalette> = context.dataStore.data
+        .map { it[SELECTED_KEY] to it[CUSTOM_KEY] }
+        .distinctUntilChanged()
+        .map { (id, customJson) -> resolvePalette(id, parseCustom(customJson)) }
 
     suspend fun select(id: String) {
         context.dataStore.edit { it[SELECTED_KEY] = id }
@@ -247,7 +288,55 @@ class PaletteStore(private val context: Context) {
     }
 
     /** One-shot read of the selected palette, for non-Compose consumers (widget, service). */
-    suspend fun current(): AppPalette = resolvePalette(selectedId.first(), customPalettes.first())
+    suspend fun current(): AppPalette = palette.first()
+}
+
+/**
+ * Synchronous mirror of the resolved palette, so the very first frame is drawn in the user's
+ * colours.
+ *
+ * The palette itself lives in DataStore, which can only be read from a coroutine, so the theme
+ * used to start at [DEFAULT_PALETTE] and re-theme when the real value arrived — a visible flash of
+ * default purple on every cold start for anyone not using the default. A tiny dedicated
+ * SharedPreferences file can be read synchronously during `onCreate`, which DataStore cannot.
+ *
+ * Deliberately its own file rather than the shared "tfi" store: it must stay small enough that the
+ * framework's load is trivial, which is exactly what the main store is not.
+ */
+object PaletteCache {
+    private const val FILE = "palette_cache"
+    private const val KEY = "resolved_palette"
+
+    @Volatile private var prefs: android.content.SharedPreferences? = null
+
+    private fun prefs(context: Context): android.content.SharedPreferences =
+        prefs ?: context.applicationContext
+            .getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .also { prefs = it }
+
+    /**
+     * Call from [TfiApp.onCreate]. Touching the file here starts the framework's asynchronous
+     * load, so the read in `MainActivity.onCreate` a moment later is served from memory. Then
+     * mirrors every palette change for the life of the process.
+     */
+    fun init(context: Context) {
+        val app = context.applicationContext
+        prefs(app)
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                PaletteStore(app).palette.collect { palette ->
+                    prefs(app).edit().putString(KEY, paletteGson.toJson(palette)).apply()
+                }
+            }
+        }
+    }
+
+    /** Last known palette, or the default if nothing has been mirrored yet. */
+    fun cached(context: Context): AppPalette {
+        val json = prefs(context).getString(KEY, null) ?: return DEFAULT_PALETTE
+        return runCatching { paletteGson.fromJson(json, AppPalette::class.java) }.getOrNull()
+            ?: DEFAULT_PALETTE
+    }
 }
 
 private val LOCATION_AWARE_KEY = booleanPreferencesKey("location_aware")
@@ -272,17 +361,19 @@ const val MIN_ROUTE_LINE_DISTANCE_M = 100
 const val MAX_ROUTE_LINE_DISTANCE_M = 3000
 
 class SettingsStore(private val context: Context) {
-    val locationAware: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[LOCATION_AWARE_KEY] ?: false
-    }
+    val locationAware: Flow<Boolean> = context.dataStore.data
+        .map { prefs -> prefs[LOCATION_AWARE_KEY] }
+        .distinctUntilChanged()
+        .map { it ?: false }
 
     suspend fun setLocationAware(enabled: Boolean) {
         context.dataStore.edit { it[LOCATION_AWARE_KEY] = enabled }
     }
 
-    val hideFarStops: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[HIDE_FAR_STOPS_KEY] ?: false
-    }
+    val hideFarStops: Flow<Boolean> = context.dataStore.data
+        .map { prefs -> prefs[HIDE_FAR_STOPS_KEY] }
+        .distinctUntilChanged()
+        .map { it ?: false }
 
     suspend fun setHideFarStops(enabled: Boolean) {
         context.dataStore.edit { it[HIDE_FAR_STOPS_KEY] = enabled }
@@ -290,17 +381,19 @@ class SettingsStore(private val context: Context) {
 
     /** Draw each shown bus's road geometry on the stop map. Off by default — several routes
      *  along one street overlap into a thick smear, so it's opt-in. */
-    val routeLines: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[ROUTE_LINES_KEY] ?: false
-    }
+    val routeLines: Flow<Boolean> = context.dataStore.data
+        .map { prefs -> prefs[ROUTE_LINES_KEY] }
+        .distinctUntilChanged()
+        .map { it ?: false }
 
     suspend fun setRouteLines(enabled: Boolean) {
         context.dataStore.edit { it[ROUTE_LINES_KEY] = enabled }
     }
 
-    val routeLineDistanceM: Flow<Int> = context.dataStore.data.map { prefs ->
-        prefs[ROUTE_LINE_DISTANCE_KEY] ?: DEFAULT_ROUTE_LINE_DISTANCE_M
-    }
+    val routeLineDistanceM: Flow<Int> = context.dataStore.data
+        .map { prefs -> prefs[ROUTE_LINE_DISTANCE_KEY] }
+        .distinctUntilChanged()
+        .map { it ?: DEFAULT_ROUTE_LINE_DISTANCE_M }
 
     suspend fun setRouteLineDistanceM(metres: Int) {
         context.dataStore.edit {
@@ -308,17 +401,19 @@ class SettingsStore(private val context: Context) {
         }
     }
 
-    val farStopThresholdM: Flow<Int> = context.dataStore.data.map { prefs ->
-        prefs[FAR_STOP_THRESHOLD_KEY] ?: DEFAULT_FAR_STOP_THRESHOLD_M
-    }
+    val farStopThresholdM: Flow<Int> = context.dataStore.data
+        .map { prefs -> prefs[FAR_STOP_THRESHOLD_KEY] }
+        .distinctUntilChanged()
+        .map { it ?: DEFAULT_FAR_STOP_THRESHOLD_M }
 
     suspend fun setFarStopThresholdM(metres: Int) {
         context.dataStore.edit { it[FAR_STOP_THRESHOLD_KEY] = metres }
     }
 
-    val busDisplayThresholdMin: Flow<Int> = context.dataStore.data.map { prefs ->
-        prefs[BUS_DISPLAY_THRESHOLD_KEY] ?: DEFAULT_BUS_DISPLAY_THRESHOLD_MIN
-    }
+    val busDisplayThresholdMin: Flow<Int> = context.dataStore.data
+        .map { prefs -> prefs[BUS_DISPLAY_THRESHOLD_KEY] }
+        .distinctUntilChanged()
+        .map { it ?: DEFAULT_BUS_DISPLAY_THRESHOLD_MIN }
 
     suspend fun setBusDisplayThresholdMin(minutes: Int) {
         context.dataStore.edit { it[BUS_DISPLAY_THRESHOLD_KEY] = minutes }

@@ -25,7 +25,7 @@ class NotificationWorker(context: Context, params: WorkerParameters) : Coroutine
             if (today !in window.days) continue
             if (nowMins < window.startMinute || nowMins >= window.endMinute) continue
 
-            val deps = runCatching { Api.service.departures(window.stopCode).departures }
+            val deps = runCatching { Api.service().departures(window.stopCode).departures }
                 .getOrNull() ?: continue
 
             val matching = deps.filter { d ->

@@ -32,6 +32,8 @@ fun TripMap(
     anchorLabel: String? = null,
     /** Live position of this trip's bus, if it has one running right now. */
     vehicle: VehiclePosition? = null,
+    /** Minutes since midnight, ticking. Decides whether the bus reads as running. */
+    nowMins: Int,
     modifier: Modifier = Modifier,
 ) {
     val isDark = isSystemInDarkTheme()
@@ -61,7 +63,6 @@ fun TripMap(
             // The bus, the line from it to the stop, and a fade — nothing before the bus and
             // nothing past the stop. The route-line length setting deliberately doesn't apply
             // here: it exists to control crowding where several routes are drawn at once.
-            val nowMins = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
             val state = vehicle?.let { runStateOf(it, nowMins) }
             val departed = state == RunState.RUNNING
             val run = if (departed && anchorLat != null && anchorLon != null) {
@@ -97,7 +98,9 @@ fun TripMap(
                         map.overlays.add(this)
                     }
                 marker.position = GeoPoint(anchorLat, anchorLon)
-                marker.icon = StopSquareDrawable(lineArgb, onPinArgb, density, anchorLabel)
+                setMarkerIcon(marker, "stop|$lineArgb|$onPinArgb|$anchorLabel") {
+                    StopSquareDrawable(lineArgb, onPinArgb, density, anchorLabel)
+                }
             }
 
             // This trip's bus. Same marker as the stop map, mutated in place so it moves
@@ -114,11 +117,10 @@ fun TripMap(
                     map.overlays.add(this)
                 }
                 bus.position = GeoPoint(vehicle.lat, vehicle.lon)
-                bus.icon = BusMarkerDrawable(
-                    vehicle.routeShortName,
-                    if (departed) lineArgb else dimmed(lineArgb),
-                    onPinArgb, vehicle.bearing, density,
-                )
+                val fill = if (departed) lineArgb else dimmed(lineArgb)
+                setMarkerIcon(bus, busIconKey(vehicle.routeShortName, fill, onPinArgb, vehicle.bearing)) {
+                    BusMarkerDrawable(vehicle.routeShortName, fill, onPinArgb, vehicle.bearing, density)
+                }
             }
 
             applyOverlayOrder(map)
@@ -138,6 +140,8 @@ fun TripMap(
 
             map.invalidate()
         },
+        // See StopMap: osmdroid needs onDetach() to release its tile cache and downloader threads.
+        onRelease = { it.onDetach() },
         modifier = modifier
             .clipToBounds()
             .graphicsLayer { }

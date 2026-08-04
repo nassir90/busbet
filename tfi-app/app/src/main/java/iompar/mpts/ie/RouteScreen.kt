@@ -26,12 +26,19 @@ fun RouteScreen(
     var error by remember(route, direction) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(route, direction) {
-        runCatching { Api.service.routeStops(route, direction) }
+        runCatching { Api.service().routeStops(route, direction) }
             .onSuccess { stops = it; error = null }
             .onFailure {
                 // Leaving the screen cancels this; that isn't an error to show the user.
                 if (it is kotlinx.coroutines.CancellationException) throw it
-                error = it.message ?: "error"; stops = emptyList()
+                // 404 is the server saying this route has no stops in this direction, which the
+                // flip button reaches on any one-way route. That's an empty result — showing
+                // "Could not load route" made a normal answer look like a failure.
+                if (it is retrofit2.HttpException && it.code() == 404) {
+                    stops = emptyList(); error = null
+                } else {
+                    error = it.message ?: "error"; stops = emptyList()
+                }
             }
     }
 
@@ -71,7 +78,12 @@ fun RouteScreen(
                     Text("Could not load route.", color = MaterialTheme.colorScheme.error)
                 }
                 s == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading…") }
-                s.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No stops") }
+                s.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "This route has no stops in this direction.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 else -> {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("${s.first().stopName} → ${s.last().stopName} · ${s.size} stops",

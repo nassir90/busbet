@@ -14,8 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
-import java.time.LocalTime
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,32 +32,38 @@ fun TripScreen(
     // Geometry is static, so fetch once per trip rather than on the 30s detail poll.
     var shape by remember(tripId) { mutableStateOf<List<ShapePoint>>(emptyList()) }
     LaunchedEffect(tripId) {
-        runCatching { Api.service.tripShape(tripId) }
+        runCatching { Api.service().tripShape(tripId) }
             .onSuccess { shape = it }
             .onFailure { shape = emptyList() } // trips without a shape in the feed are normal
     }
 
-    // The bus does move, so unlike the shape this polls. 404 simply means the trip has no
-    // vehicle reporting right now — scheduled-only, finished, or not yet started.
+    // The bus does move, so unlike the shape these poll. 404 on the vehicle simply means the trip
+    // has no reporting right now — scheduled-only, finished, or not yet started.
+    //
+    // One lifecycle-aware loop issuing both concurrently, rather than two independent `while(true)`
+    // loops on their own timers that also kept running with the app in the background.
     var vehicle by remember(tripId) { mutableStateOf<VehiclePosition?>(null) }
-    LaunchedEffect(tripId) {
-        while (true) {
-            runCatching { Api.service.tripVehicle(tripId) }
-                .onSuccess { vehicle = it }
-                .onFailure { vehicle = null }
-            delay(30_000)
-        }
-    }
+    // Ticks on the minute so the not-departed / finished chip and the per-stop countdowns stay
+    // honest without waiting for a poll to land.
+    val nowMins = rememberNowMinutes()
+    PollEffect(tripId) {
+        coroutineScope {
+            val v = async { runCatching { Api.service().tripVehicle(tripId) } }
+            val d = async { runCatching { Api.service().trip(tripId) } }
 
-    LaunchedEffect(tripId) {
-        while (true) {
-            runCatching { Api.service.trip(tripId) }
+            v.await()
+                .onSuccess { vehicle = it }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    vehicle = null
+                }
+            d.await()
                 .onSuccess { detail = it; stale = false; initialError = null }
                 .onFailure {
+                    if (it is CancellationException) throw it
                     if (detail != null) stale = true
                     else initialError = it.message ?: "error"
                 }
-            delay(30_000)
         }
     }
 
@@ -84,7 +91,6 @@ fun TripScreen(
             actions = {
                 // From the schedule, not the feed: NTA reports currentStatus IN_TRANSIT_TO and
                 // currentStopSequence 0 for every vehicle, so neither can answer this.
-                val nowMins = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
                 val state = vehicle?.let { runStateOf(it, nowMins) }
                 if (state == RunState.NOT_DEPARTED || state == RunState.FINISHED) {
                     Text(
@@ -116,10 +122,11 @@ fun TripScreen(
                                 anchorLon = anchor?.stopLon,
                                 anchorLabel = anchor?.stopCode,
                                 vehicle = vehicle,
+                                nowMins = nowMins,
                                 modifier = Modifier.fillMaxWidth().height(200.dp),
                             )
                         }
-                        TripStopsList(d, fromStopCode, onOpenStop)
+                        TripStopsList(d, fromStopCode, onOpenStop, nowMins)
                     }
                 }
             }
@@ -128,8 +135,12 @@ fun TripScreen(
 }
 
 @Composable
-private fun TripStopsList(d: TripDetail, fromStopCode: String?, onOpenStop: (String) -> Unit) {
-    val nowMins = remember { LocalTime.now().let { it.hour * 60 + it.minute } }
+private fun TripStopsList(
+    d: TripDetail,
+    fromStopCode: String?,
+    onOpenStop: (String) -> Unit,
+    nowMins: Int,
+) {
     val initialIndex = remember(fromStopCode) {
         fromStopCode?.let { code -> d.stops.indexOfFirst { it.stopCode == code } }
             ?.takeIf { it >= 0 } ?: 0

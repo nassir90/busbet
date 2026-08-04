@@ -247,13 +247,9 @@ private fun CalendarGrid(
     val timeLabelWDp = TIME_LABEL_W_DP.dp
     val totalHours   = (GRID_END_MIN - GRID_START_MIN) / 60
 
-    var nowMins by remember { mutableIntStateOf(LocalTime.now().let { it.hour * 60 + it.minute }) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(60_000)
-            nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
-        }
-    }
+    // The shared ticker, which lands on the minute boundary rather than drifting by however long
+    // after midnight this screen happened to open.
+    val nowMins = rememberNowMinutes()
 
     val dragOffsets = remember { mutableStateMapOf<String, Offset>() }
 

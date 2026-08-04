@@ -33,6 +33,8 @@ fun StopMap(
     vehicles: List<VehiclePosition> = emptyList(),
     /** Road geometry per trip id. Empty when route lines are off. */
     shapes: Map<String, List<ShapePoint>> = emptyMap(),
+    /** Minutes since midnight, ticking. Drives the dimming of buses outside their window. */
+    nowMins: Int,
     modifier: Modifier = Modifier,
 ) {
     val isDark  = isSystemInDarkTheme()
@@ -41,11 +43,10 @@ fun StopMap(
     val pinArgb = primary.toArgb()
     // Text on the marker fill. The palette already names the right colour for this: the default
     // theme's dark mode uses a light lavender primary (0xFFD0BCFF), where hardcoded white is
-    // unreadable, and onPrimary is 0xFF381E72.
+    // unreadable, and onPinArgb is 0xFF381E72.
     val onPinArgb = MaterialTheme.colorScheme.onPrimary.toArgb()
     // Buses outside their scheduled window are dimmed rather than hidden: still there, visibly
     // not running.
-    val nowMins = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
     val busFill = { v: VehiclePosition ->
         if (runStateOf(v, nowMins) == RunState.RUNNING) pinArgb else dimmed(pinArgb)
     }
@@ -145,23 +146,23 @@ fun StopMap(
                 if (id !in wantedIds) map.overlays.remove(marker)
             }
 
-            // Add new vehicles, update existing ones in place.
+            // Add new vehicles, update existing ones in place. The icon is only rebuilt when its
+            // inputs change — a bus that merely moved needs the position set, nothing more.
             for (v in vehicles) {
                 val id     = "$prefix${v.tripId}"
                 val point  = GeoPoint(v.lat, v.lon)
-                val marker = existing[id]
-                if (marker == null) {
-                    map.overlays.add(Marker(map).apply {
-                        position  = point
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        icon      = BusMarkerDrawable(v.routeShortName, busFill(v), onPinArgb, v.bearing, density)
-                        title     = null
-                        infoWindow = null
-                        this.id   = id
-                    })
-                } else {
-                    marker.position = point
-                    marker.icon     = BusMarkerDrawable(v.routeShortName, busFill(v), onPinArgb, v.bearing, density)
+                val fill   = busFill(v)
+                val iconKey = busIconKey(v.routeShortName, fill, onPinArgb, v.bearing)
+                val marker = existing[id] ?: Marker(map).apply {
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    title      = null
+                    infoWindow = null
+                    this.id    = id
+                    map.overlays.add(this)
+                }
+                marker.position = point
+                setMarkerIcon(marker, iconKey) {
+                    BusMarkerDrawable(v.routeShortName, fill, onPinArgb, v.bearing, density)
                 }
             }
 
@@ -169,6 +170,10 @@ fun StopMap(
 
             map.invalidate()
         },
+        // osmdroid holds a tile cache and downloader threads per MapView and expects onDetach() to
+        // release them. Nothing here ever called it, and every stop or trip screen opened built a
+        // fresh MapView, so the cost accumulated for the life of the process.
+        onRelease = { it.onDetach() },
         modifier = modifier
             .clipToBounds()
             .graphicsLayer { }

@@ -30,12 +30,22 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private const val MAX_HISTORY_SUGGESTIONS = 4
+
+/**
+ * Debounce before a search leaves the device. Matches the notification sheet's stop search, which
+ * used a different value despite being the same interaction.
+ */
+const val SEARCH_DEBOUNCE_MS = 200L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,10 +94,16 @@ fun HomeScreen(
             stopResults = emptyList(); routeResults = emptyList(); searchError = null
             return@LaunchedEffect
         }
-        delay(150)
+        delay(SEARCH_DEBOUNCE_MS)
         runCatching {
-            stopResults = Api.service.searchStops(query)
-            routeResults = Api.service.searchRoutes(query)
+            // Concurrently: these are independent lookups, and run in sequence the route results
+            // couldn't land until the stop results had, roughly doubling the wait on a slow link.
+            coroutineScope {
+                val stops = async { Api.service().searchStops(query) }
+                val routes = async { Api.service().searchRoutes(query) }
+                stopResults = stops.await()
+                routeResults = routes.await()
+            }
             searchError = null
         }.onFailure { e ->
             // Typing fast cancels the previous search. runCatching catches CancellationException
@@ -107,14 +123,29 @@ fun HomeScreen(
     LaunchedEffect(favourites) { localOrder = favourites }
 
     // Backfill coordinates for favourites added before location-aware mode existed.
-    LaunchedEffect(locationAware, favourites) {
+    //
+    // This effect writes coordinates back through favStore, which re-emits `favourites`. Keyed on
+    // the favourites list it therefore restarted itself on every success, cancelling the lookup
+    // already in flight — N stops became a cascade of started-then-abandoned requests. Keyed on
+    // `locationAware` alone it survives its own writes, and the conflated snapshotFlow inside
+    // still picks up newly added favourites. `attempted` makes each code a one-shot, so a stop
+    // whose lookup fails isn't retried on every subsequent list change.
+    val attemptedCoords = remember { mutableSetOf<String>() }
+    LaunchedEffect(locationAware) {
         if (!locationAware) return@LaunchedEffect
-        favourites.filter { it.lat == null || it.lon == null }.forEach { fav ->
-            runCatching { Api.service.stop(fav.code) }
-                .onSuccess { s ->
-                    if (s.stopLat != null && s.stopLon != null) favStore.setCoords(fav.code, s.stopLat, s.stopLon)
+        snapshotFlow { favourites }
+            .map { list -> list.filter { it.lat == null || it.lon == null }.map { f -> f.code } }
+            .collect { codes ->
+                codes.forEach { code ->
+                    if (!attemptedCoords.add(code)) return@forEach
+                    runCatching { Api.service().stop(code) }
+                        .onSuccess { s ->
+                            if (s.stopLat != null && s.stopLon != null) {
+                                favStore.setCoords(code, s.stopLat, s.stopLon)
+                            }
+                        }
                 }
-        }
+            }
     }
 
     // When location-aware and we have a fix, present favourites sorted by distance
@@ -128,8 +159,47 @@ fun HomeScreen(
         }
     } else localOrder
 
-    val staleCodes = remember { mutableStateMapOf<String, Boolean>() }
-    val anyStale = displayList.any { staleCodes[it.code] == true }
+    // One request for the whole favourites list, not one per card.
+    //
+    // Each FavouriteCard used to own a poll loop, so opening the app fired N simultaneous
+    // /departures/{code} calls that OkHttp then queued at 5 concurrent per host — the tail of a
+    // long list waited on a second wave. It also meant the stale flag had to be gathered back up
+    // from the cards through a snapshot map; one shared request makes it a single flag.
+    val boardCodes = remember(displayList) { displayList.map { it.code } }
+    val pinnedSec = timeController.committedSec
+    // Ticks on the minute, so "3 mins" counts down on its own instead of sitting frozen until
+    // some unrelated recomposition happens along.
+    val boardNowMins = rememberBoardMinutes(pinnedSec)
+    var boards by remember { mutableStateOf<Map<String, DeparturesResponse>>(emptyMap()) }
+    var missingCodes by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var boardsFailed by remember { mutableStateOf(false) }
+    var anyStale by remember { mutableStateOf(false) }
+
+    PollEffect(
+        boardCodes, pinnedSec, refreshKey,
+        // Pinned to a historical instant the data is static, so fetch once and stop.
+        intervalMs = if (pinnedSec == null) POLL_INTERVAL_MS else null,
+    ) {
+        if (boardCodes.isEmpty()) {
+            boards = emptyMap(); missingCodes = emptySet(); boardsFailed = false; anyStale = false
+            return@PollEffect
+        }
+        runCatching { Boards.fetch(boardCodes, pinnedSec) }
+            .onSuccess { result ->
+                boards = result.boards
+                missingCodes = result.missing
+                if (pinnedSec == null) result.boards.forEach { (c, d) -> DeparturesCache.put(c, d) }
+                boardsFailed = false
+                anyStale = false
+            }
+            .onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                android.util.Log.e("tfi", "batch departures failed", it)
+                // Keep whatever is on screen and mark it stale; only report an outright failure
+                // when there was nothing to fall back on.
+                if (boards.isEmpty()) boardsFailed = true else anyStale = true
+            }
+    }
 
     val listState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
@@ -245,19 +315,25 @@ fun HomeScreen(
             val showDropdown = searchFocused && query.isNotEmpty() &&
                 (matchingHistory.isNotEmpty() || routeResults.isNotEmpty() || stopResults.isNotEmpty())
 
+            // Hoisted out of the LazyColumn item it used to live in. Inside the item the effect
+            // re-launched every time a row re-entered composition — scrolling the dropdown, or
+            // editing the query — and because it only recorded successes, a stop whose lookup
+            // failed was retried every single time. StopRoutesCache caches failures too, and is
+            // shared with the stop board and the notification sheet, which ask the same question.
+            val legacyCodes = remember(matchingHistory) {
+                matchingHistory.filter { !it.isRoute && it.routes.isNullOrEmpty() }.map { it.id }
+            }
+            LaunchedEffect(legacyCodes) {
+                legacyCodes.forEach { code ->
+                    if (code !in legacyStopServices) legacyStopServices[code] = StopRoutesCache.get(code)
+                }
+            }
+
             if (showDropdown) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         if (matchingHistory.isNotEmpty()) {
                             items(matchingHistory, key = { "history:${it.isRoute}:${it.id}" }) { h ->
-                                if (!h.isRoute && h.routes.isNullOrEmpty()) {
-                                    LaunchedEffect(h.id) {
-                                        if (h.id !in legacyStopServices) {
-                                            runCatching { Api.service.stopRoutes(h.id) }
-                                                .onSuccess { legacyStopServices[h.id] = it.sorted() }
-                                        }
-                                    }
-                                }
                                 CompactSearchRow(
                                     label = h.label,
                                     services = when {
@@ -390,9 +466,14 @@ fun HomeScreen(
                                 onSetCustomName = { name -> scope.launch { favStore.setCustomName(fav.code, name) } },
                                 onToggleCollapsed = { scope.launch { favStore.setCollapsed(fav.code, !fav.collapsed) } },
                                 handleModifier = handleModifier,
-                                onStaleChanged = { staleCodes[fav.code] = it },
-                                refreshKey = refreshKey,
-                                timeSec = timeController.committedSec,
+                                // Served from the one shared batch poll. Falls back to the
+                                // last-seen board so a card paints instantly on return rather
+                                // than flashing "Loading…" until the first response lands.
+                                board = boards[fav.code]
+                                    ?: if (pinnedSec == null) DeparturesCache.get(fav.code) else null,
+                                loadFailed = boardsFailed,
+                                notInTimetable = fav.code in missingCodes,
+                                nowMins = boardNowMins,
                             )
                         }
                     }
@@ -479,13 +560,17 @@ private fun FavouriteCard(
     onSetCustomName: (String?) -> Unit,
     onToggleCollapsed: () -> Unit,
     handleModifier: Modifier,
-    onStaleChanged: (Boolean) -> Unit,
+    /** This stop's board, from the screen-level batch poll. Null while nothing has loaded yet. */
+    board: DeparturesResponse?,
+    /** True when the batch poll failed with nothing cached to fall back on. */
+    loadFailed: Boolean,
+    /** True when the server says this stop code isn't in the timetable at all. */
+    notInTimetable: Boolean,
+    nowMins: Int,
     showHandle: Boolean = true,
     distanceLabel: String? = null,
     dimmed: Boolean = false,
     autoCollapsed: Boolean = false,
-    refreshKey: Int = 0,
-    timeSec: Long? = null,
 ) {
     var showRename by remember { mutableStateOf(false) }
     if (showRename) {
@@ -501,36 +586,11 @@ private fun FavouriteCard(
     var peek by remember(favourite.code, autoCollapsed) { mutableStateOf(false) }
     val collapsed = if (autoCollapsed) !peek else favourite.collapsed
 
+    // The route filter is per-favourite config, so it's applied here rather than at the shared
+    // fetch: two cards can hide different routes from the same batch response.
     val hiddenRoutes = favourite.hiddenRoutes?.toSet() ?: emptySet()
-    var deps by remember(favourite.code, timeSec, hiddenRoutes) {
-        mutableStateOf(
-            if (timeSec == null)
-                DeparturesCache.get(favourite.code)?.departures
-                    ?.filter { it.routeShortName !in hiddenRoutes }?.take(3)
-            else null
-        )
-    }
-    var initialError by remember(favourite.code, timeSec) { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(favourite.code, refreshKey, timeSec, hiddenRoutes) {
-        while (true) {
-            runCatching { Api.service.departures(favourite.code, timeSec) }
-                .onSuccess {
-                    deps = it.departures.filter { d -> d.routeShortName !in hiddenRoutes }.take(3)
-                    if (timeSec == null) DeparturesCache.put(favourite.code, it)
-                    initialError = null
-                    onStaleChanged(false)
-                }
-                .onFailure {
-                    if (it is kotlinx.coroutines.CancellationException) throw it
-                    android.util.Log.e("tfi", "departures ${favourite.code} failed", it)
-                    if (deps != null) onStaleChanged(true)
-                    else initialError = "${it::class.simpleName}: ${it.message}"
-                }
-            // Pinned to a historical instant: data is static, don't poll.
-            if (timeSec != null) break
-            delay(30_000)
-        }
+    val deps = remember(board, hiddenRoutes) {
+        board?.departures?.filter { it.routeShortName !in hiddenRoutes }?.take(3)
     }
 
     ElevatedCard(
@@ -583,24 +643,26 @@ private fun FavouriteCard(
             if (!collapsed) {
                 Spacer(Modifier.height(4.dp))
                 when {
-                    deps == null && initialError != null ->
+                    // Distinct from a failed load: this stop is gone from the timetable, so
+                    // waiting won't help. It used to sit on "Loading…" indefinitely.
+                    deps == null && notInTimetable ->
+                        Text(
+                            "This stop is no longer in the timetable",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    deps == null && loadFailed ->
                         Text("Could not load", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     deps == null -> Text("Loading…", style = MaterialTheme.typography.bodySmall)
-                    deps!!.isEmpty() -> Text("No upcoming departures", style = MaterialTheme.typography.bodySmall)
-                    else -> {
-                        val refNowMins = timeSec?.let {
-                            java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
-                                .let { z -> z.hour * 60 + z.minute }
-                        } ?: java.time.LocalTime.now().let { it.hour * 60 + it.minute }
-                        deps!!.forEach { d ->
-                            DepartureRow(
-                                d,
-                                nowMins = refNowMins,
-                                onOpenRoute = { onOpenTrip(d.tripId, favourite.code) },
-                                onOpenService = { onOpenRoute(d.routeShortName, d.directionId) },
-                                onReport = { onReport(d, favourite.code, favourite.name) },
-                            )
-                        }
+                    deps.isEmpty() -> Text("No upcoming departures", style = MaterialTheme.typography.bodySmall)
+                    else -> deps.forEach { d ->
+                        DepartureRow(
+                            d,
+                            nowMins = nowMins,
+                            onOpenRoute = { onOpenTrip(d.tripId, favourite.code) },
+                            onOpenService = { onOpenRoute(d.routeShortName, d.directionId) },
+                            onReport = { onReport(d, favourite.code, favourite.name) },
+                        )
                     }
                 }
             }

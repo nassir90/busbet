@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import iompar.mpts.ie.dataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -41,18 +42,27 @@ private val SERVER_PORT_KEY = intPreferencesKey("server_port")
  * [iompar.mpts.ie.SettingsStore].
  */
 class ServerSettingsStore(private val context: Context) {
-    val enabled: Flow<Boolean> = context.dataStore.data.map { it[SERVER_ENABLED_KEY] ?: false }
+    // Each flow is narrowed to its own key(s) and deduped: the whole app shares one DataStore, so
+    // `data` re-emits on every write anywhere, and these collectors sit alive on the Settings
+    // screen while the user is toggling unrelated things.
+    val enabled: Flow<Boolean> = context.dataStore.data
+        .map { it[SERVER_ENABLED_KEY] }.distinctUntilChanged().map { it ?: false }
 
     /** Whether to bring the server back up after a reboot. Off by default: a reboot leaves it down. */
-    val startOnBoot: Flow<Boolean> = context.dataStore.data.map { it[SERVER_START_ON_BOOT_KEY] ?: false }
+    val startOnBoot: Flow<Boolean> = context.dataStore.data
+        .map { it[SERVER_START_ON_BOOT_KEY] }.distinctUntilChanged().map { it ?: false }
 
-    val bindMode: Flow<BindMode> = context.dataStore.data.map { prefs ->
-        prefs[SERVER_BIND_MODE_KEY]?.let { runCatching { BindMode.valueOf(it) }.getOrNull() }
-        // Fall back to the legacy boolean so existing installs keep their choice.
-            ?: if (prefs[SERVER_BIND_LAN_KEY] == true) BindMode.ALL else BindMode.LOOPBACK
-    }
+    val bindMode: Flow<BindMode> = context.dataStore.data
+        .map { it[SERVER_BIND_MODE_KEY] to it[SERVER_BIND_LAN_KEY] }
+        .distinctUntilChanged()
+        .map { (mode, legacyLan) ->
+            mode?.let { runCatching { BindMode.valueOf(it) }.getOrNull() }
+            // Fall back to the legacy boolean so existing installs keep their choice.
+                ?: if (legacyLan == true) BindMode.ALL else BindMode.LOOPBACK
+        }
 
-    val port: Flow<Int> = context.dataStore.data.map { it[SERVER_PORT_KEY] ?: DEFAULT_SERVER_PORT }
+    val port: Flow<Int> = context.dataStore.data
+        .map { it[SERVER_PORT_KEY] }.distinctUntilChanged().map { it ?: DEFAULT_SERVER_PORT }
 
     suspend fun setEnabled(value: Boolean) {
         context.dataStore.edit { it[SERVER_ENABLED_KEY] = value }

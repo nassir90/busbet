@@ -128,9 +128,9 @@ private class DefaultNotificationWindowService(
 }
 
 private class DefaultTransitQueryService : TransitQueryService {
-    override suspend fun searchStops(query: String) = Api.service.searchStops(query)
+    override suspend fun searchStops(query: String) = Api.service().searchStops(query)
     override suspend fun departures(stopCode: String, time: Long?) =
-        Api.service.departures(stopCode, time)
+        Api.service().departures(stopCode, time)
 }
 
 private class DefaultBackendConfigService(

@@ -23,7 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -59,14 +60,21 @@ fun StopScreen(
     // Trip id -> road geometry. Cached across polls: a trip's shape is static, so refetching it
     // every 30s would be pure waste.
     val shapes = remember { mutableStateMapOf<String, List<ShapePoint>>() }
-    val nowMins = querySec?.let {
-        java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
-            .let { z -> z.hour * 60 + z.minute }
-    } ?: LocalTime.now().let { it.hour * 60 + it.minute }
+    // Ticks on the minute (or stays put when pinned), so the "due in" column counts down by
+    // itself rather than freezing until an unrelated recomposition.
+    val nowMins = rememberBoardMinutes(querySec)
 
-    LaunchedEffect(code, refreshKey, querySec) {
-        while (true) {
-            runCatching { Api.service.departures(code, querySec) }
+    PollEffect(
+        code, refreshKey, querySec,
+        // Pinned to a historical instant the data won't change; fetch once and stop.
+        intervalMs = if (querySec == null) POLL_INTERVAL_MS else null,
+    ) {
+        // Concurrently — independent calls that were costing two serial round trips per tick.
+        coroutineScope {
+            val deps = async { runCatching { Api.service().departures(code, querySec) } }
+            val vehs = async { runCatching { Api.service().vehicles(code, querySec) } }
+
+            deps.await()
                 .onSuccess {
                     data = it
                     DeparturesCache.put(code, it)
@@ -80,17 +88,14 @@ fun StopScreen(
                     if (data != null) stale = true
                     else initialError = it.message ?: "error"
                 }
-            runCatching { Api.service.vehicles(code, querySec) }
+            vehs.await()
                 .onSuccess { vehicles = it }
                 .onFailure {
                     if (it is CancellationException) throw it
                     android.util.Log.w("tfi", "vehicles $code fetch failed", it)
                 }
-            isRefreshing = false
-            // When pinned to a historical instant the data won't change; poll only when live.
-            if (querySec != null) break
-            delay(30_000)
         }
+        isRefreshing = false
     }
 
     val isFavourite = favourites.any { it.code == code }
@@ -107,10 +112,10 @@ fun StopScreen(
 
     // Every route that serves this stop, for the filter dialog. The departures window only covers
     // the next ~105 min, so a route with no imminent trip would otherwise be unlisted.
+    // Shared cache: the notification sheet and the home screen's history rows ask the same
+    // question, and it's static GTFS that can't change while the app is open.
     var stopRoutes by remember(code) { mutableStateOf<List<String>>(emptyList()) }
-    LaunchedEffect(code) {
-        runCatching { Api.service.stopRoutes(code) }.onSuccess { stopRoutes = it.sorted() }
-    }
+    LaunchedEffect(code) { stopRoutes = StopRoutesCache.get(code) }
 
     val stop = data?.stop
     Scaffold(topBar = {
@@ -189,7 +194,7 @@ fun StopScreen(
                     if (!routeLines) return@LaunchedEffect
                     shownVehicles.forEach { v ->
                         if (shapes.containsKey(v.tripId)) return@forEach
-                        runCatching { Api.service.tripShape(v.tripId) }
+                        runCatching { Api.service().tripShape(v.tripId) }
                             .onSuccess { shapes[v.tripId] = it }
                             .onFailure {
                                 if (it is CancellationException) throw it
@@ -207,6 +212,7 @@ fun StopScreen(
                     shapes = if (routeLines) {
                         shownVehicles.mapNotNull { v -> shapes[v.tripId]?.let { v.tripId to it } }.toMap()
                     } else emptyMap(),
+                    nowMins = nowMins,
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                 )
             }

@@ -1,12 +1,26 @@
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createSqliteBackend } from './src/sqlite.js';
-import { getDepartures } from './src/departures.js';
+import { getDepartures, getDeparturesBatch } from './src/departures.js';
 import { fetchFeed, selectFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
 import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
 import { parseTimeParam, parseDuration, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
 
 const MAX_RANGE_STEPS = 1000;
+
+/**
+ * Ceiling on stops per batch departures call. A home screen has a handful of favourites; this is
+ * only here so one request can't be turned into an unbounded pile of SQLite work.
+ */
+const MAX_BATCH_CODES = 50;
+
+/**
+ * Static GTFS derived from the scheduled feed — stop-route lists, route stop sequences, shape
+ * geometry. It changes when a new timetable is loaded, not minute to minute, and the clients
+ * refetch it on every screen open. A short shared max-age lets OkHttp and any proxy in front of
+ * this serve it without a round trip.
+ */
+const STATIC_CACHE_HEADERS = { 'Cache-Control': 'public, max-age=3600' };
 
 // ---------------------------------------------------------------------------
 // Config
@@ -156,6 +170,27 @@ const server = http.createServer(async (req, res) => {
 			return respond(res, 200, { stop, series });
 		}
 
+		// /departures?codes=a,b,c — one round trip for a whole favourites list. The home screen
+		// used to fire one request per card at once, which OkHttp then throttled to 5 concurrent
+		// per host, so the tail of a long favourites list waited on a second wave.
+		if (path === '/departures') {
+			const raw = url.searchParams.get('codes')?.trim() ?? '';
+			const codes = [...new Set(raw.split(',').map((c) => c.trim()).filter(Boolean))];
+			if (!codes.length) return respond(res, 400, { message: 'codes required' });
+			if (codes.length > MAX_BATCH_CODES) {
+				return respond(res, 400, { message: `too many codes (max ${MAX_BATCH_CODES})` });
+			}
+			const at = parseTimeParam(url.searchParams.get('time'));
+			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
+			const batch = await getDeparturesBatch(codes, storage, FEEDS_DIR, at ?? undefined, lookback);
+			// Keyed by the code the caller asked for, so the client doesn't have to re-match on
+			// stop_code. Unknown codes are reported rather than silently dropped.
+			return respond(res, 200, {
+				results: Object.fromEntries(batch),
+				missing: codes.filter((c) => !batch.has(c)),
+			});
+		}
+
 		const departures = path.match(/^\/departures\/([^/]+)$/);
 		if (departures) {
 			const at = parseTimeParam(url.searchParams.get('time'));
@@ -168,7 +203,7 @@ const server = http.createServer(async (req, res) => {
 		const routesForStop = path.match(/^\/stop-routes\/([^/]+)$/);
 		if (routesForStop) {
 			const routes = await storage.getRoutesForStop(routesForStop[1]);
-			return respond(res, 200, routes);
+			return respond(res, 200, routes, STATIC_CACHE_HEADERS);
 		}
 
 		if (path === '/routes') {
@@ -184,7 +219,7 @@ const server = http.createServer(async (req, res) => {
 			if (!route || dir === null) return respond(res, 400, { message: 'route and direction required' });
 			const stops = await storage.getRouteStops(route, parseInt(dir));
 			if (!stops.length) return respond(res, 404, { message: 'No stops found' });
-			return respond(res, 200, stops);
+			return respond(res, 200, stops, STATIC_CACHE_HEADERS);
 		}
 
 		const tripDetail = path.match(/^\/trips\/([^/]+)$/);
@@ -252,14 +287,14 @@ const server = http.createServer(async (req, res) => {
 		if (shapeForTrip) {
 			const pts = await storage.getShapeForTrip(decodeURIComponent(shapeForTrip[1]));
 			if (!pts.length) return respond(res, 404, { message: `No shape for trip ${shapeForTrip[1]}` });
-			return respond(res, 200, pts);
+			return respond(res, 200, pts, STATIC_CACHE_HEADERS);
 		}
 
 		const shapeById = path.match(/^\/shapes\/([^/]+)$/);
 		if (shapeById) {
 			const pts = await storage.getShape(decodeURIComponent(shapeById[1]));
 			if (!pts.length) return respond(res, 404, { message: `Shape ${shapeById[1]} not found` });
-			return respond(res, 200, pts);
+			return respond(res, 200, pts, STATIC_CACHE_HEADERS);
 		}
 
 		const vehicles = path.match(/^\/vehicles\/([^/]+)$/);

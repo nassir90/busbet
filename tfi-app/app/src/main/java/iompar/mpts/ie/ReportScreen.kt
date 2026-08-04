@@ -84,7 +84,7 @@ fun ReportScreen(
                 actualTime = actualTime,
                 reportedAt = System.currentTimeMillis() / 1000,
             )
-            runCatching { Api.tenant.report(report) }
+            runCatching { Api.tenant().report(report) }
                 .onSuccess { response ->
                     val result = snackbarHostState.showSnackbar(
                         message = "Reported",
@@ -93,7 +93,7 @@ fun ReportScreen(
                         duration = SnackbarDuration.Long,
                     )
                     if (result == SnackbarResult.ActionPerformed) {
-                        runCatching { Api.tenant.undoReport(response.id) }
+                        runCatching { Api.tenant().undoReport(response.id) }
                             .onSuccess { Toast.makeText(context, "Report undone", Toast.LENGTH_SHORT).show() }
                             .onFailure {
                                 Toast.makeText(context, "Undo failed: ${it.message ?: "error"}", Toast.LENGTH_LONG).show()

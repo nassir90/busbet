@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 data class Favourite(
@@ -29,9 +30,13 @@ private val gson = Gson()
 private val type = object : TypeToken<List<Favourite>>() {}.type
 
 class FavouritesStore(private val context: Context) {
-    val flow: Flow<List<Favourite>> = context.dataStore.data.map { prefs ->
-        prefs[KEY]?.let { gson.fromJson<List<Favourite>>(it, type) } ?: emptyList()
-    }
+    // Narrowed to this one key and deduped before parsing. All the stores share the single "tfi"
+    // DataStore, so `data` re-emits on a write to any key in the app — a widget cache refresh, a
+    // settings toggle — and without this each of those re-ran Gson over the whole favourites list.
+    val flow: Flow<List<Favourite>> = context.dataStore.data
+        .map { it[KEY] }
+        .distinctUntilChanged()
+        .map { json -> json?.let { gson.fromJson<List<Favourite>>(it, type) } ?: emptyList() }
 
     suspend fun add(code: String, name: String, lat: Double? = null, lon: Double? = null) = update { current ->
         current.filterNot { it.code == code } + Favourite(code, name, lat = lat, lon = lon)

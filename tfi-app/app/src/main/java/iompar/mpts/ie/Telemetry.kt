@@ -97,17 +97,42 @@ object Telemetry {
         }
 }
 
+/**
+ * Request header listing status codes that are a normal outcome for a call, so they aren't
+ * reported as errors. Comma-separated. Stripped before the request leaves the device.
+ *
+ * Some endpoints answer a perfectly ordinary question with a 404: this trip has no live vehicle
+ * right now, this trip has no shape in the feed, this deployment predates the batch endpoint.
+ * Every one of those is caught and handled at the call site, but the interceptor reported them
+ * all as errors anyway — which is what filled Sentry with ANDROID-F and ANDROID-K.
+ * [Telemetry.captureNetworkError] already filters expected connectivity noise this way; this is
+ * the same idea for the HTTP path.
+ */
+const val EXPECTED_STATUS_HEADER = "X-Tfi-Expected-Status"
+
 /** Reports network failures and non-2xx responses for every request through [Api]'s client. */
 class SentryErrorInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request()
+        val original = chain.request()
+        val expected = original.header(EXPECTED_STATUS_HEADER)
+            ?.split(',')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?.toSet()
+            .orEmpty()
+
+        // Purely a client-side marker; the server has no use for it.
+        val request = if (expected.isEmpty()) original
+        else original.newBuilder().removeHeader(EXPECTED_STATUS_HEADER).build()
+
         val response = try {
             chain.proceed(request)
         } catch (e: IOException) {
             Telemetry.captureNetworkError(request, e)
             throw e
         }
-        if (!response.isSuccessful) Telemetry.captureHttpError(request, response.code)
+        if (!response.isSuccessful && response.code !in expected) {
+            Telemetry.captureHttpError(request, response.code)
+        }
         return response
     }
 }

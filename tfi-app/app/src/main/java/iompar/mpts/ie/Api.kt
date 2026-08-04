@@ -7,6 +7,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -36,6 +37,15 @@ data class Departure(
 data class DeparturesResponse(
     val stop: Stop,
     val departures: List<Departure>,
+)
+
+/**
+ * Response of the batch departures endpoint, keyed by the stop code that was asked for.
+ * Codes the server didn't recognise come back in [missing] rather than being silently dropped.
+ */
+data class BatchDeparturesResponse(
+    val results: Map<String, DeparturesResponse> = emptyMap(),
+    val missing: List<String> = emptyList(),
 )
 
 data class RouteDirection(
@@ -96,6 +106,10 @@ interface GtfsApi {
     @GET("stops")
     suspend fun searchStops(@Query("q") q: String): List<Stop>
 
+    // 404 means a favourite points at a stop code the current timetable no longer has. The only
+    // caller is the coordinate backfill, which skips it and leaves that favourite unsorted — the
+    // stop board reports the same condition where the user can actually see it.
+    @Headers("$EXPECTED_STATUS_HEADER: 404")
     @GET("stops/{code}")
     suspend fun stop(@Path("code") code: String): Stop
 
@@ -105,9 +119,28 @@ interface GtfsApi {
         @Query("time") time: Long? = null,
     ): DeparturesResponse
 
+    /**
+     * Departures for several stops in one round trip. [codes] is comma-separated.
+     *
+     * The home screen used to issue one request per favourite card simultaneously, which OkHttp
+     * then queued at 5 concurrent per host, so a long favourites list needed a second wave before
+     * the last card filled in.
+     */
+    // 404 means the configured deployment predates this endpoint; [Boards] catches it and falls
+    // back to per-stop calls, so it isn't an error worth reporting.
+    @Headers("$EXPECTED_STATUS_HEADER: 404")
+    @GET("departures")
+    suspend fun departuresBatch(
+        @Query("codes") codes: String,
+        @Query("time") time: Long? = null,
+    ): BatchDeparturesResponse
+
     @GET("routes")
     suspend fun searchRoutes(@Query("q") q: String): List<RouteDirection>
 
+    // 404 means this route has no stops in this direction — which the flip-direction button on the
+    // route screen reaches for any route that only runs one way. An empty result, not a failure.
+    @Headers("$EXPECTED_STATUS_HEADER: 404")
     @GET("route-stops")
     suspend fun routeStops(
         @Query("route") route: String,
@@ -117,15 +150,24 @@ interface GtfsApi {
     @GET("trips/{tripId}")
     suspend fun trip(@Path("tripId") tripId: String): TripDetail
 
+    // Purely decorative — markers on the stop map. A 404 here always accompanies a 404 on this
+    // stop's departures, which is the call that reports it, so leaving this one on would only
+    // double up the same signal.
+    @Headers("$EXPECTED_STATUS_HEADER: 404")
     @GET("vehicles/{stopCode}")
     suspend fun vehicles(
         @Path("stopCode") stopCode: String,
         @Query("time") time: Long? = null,
     ): List<VehiclePosition>
 
+    // 404 means this trip has no live position right now — scheduled-only, finished, or not yet
+    // started. An ordinary answer, not a failure.
+    @Headers("$EXPECTED_STATUS_HEADER: 404")
     @GET("vehicles/trip/{tripId}")
     suspend fun tripVehicle(@Path("tripId") tripId: String): VehiclePosition
 
+    // 404 means the feed carries no shape for this trip, which is normal for plenty of them.
+    @Headers("$EXPECTED_STATUS_HEADER: 404")
     @GET("shapes/trip/{tripId}")
     suspend fun tripShape(@Path("tripId") tripId: String): List<ShapePoint>
 
@@ -164,11 +206,36 @@ data class UndoReportResponse(
 )
 
 object Api {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .addInterceptor(SentryErrorInterceptor())
-        .build()
+    /** On-disk response cache. Small: only the static GTFS endpoints are cacheable. */
+    private const val HTTP_CACHE_BYTES = 8L * 1024 * 1024
+
+    @Volatile private var httpCacheDir: java.io.File? = null
+
+    /**
+     * Call once from [TfiApp.onCreate], before anything issues a request. Only records a path —
+     * OkHttp opens the cache lazily on first use, so this does no disk I/O.
+     */
+    fun init(context: android.content.Context) {
+        httpCacheDir = java.io.File(context.applicationContext.cacheDir, "http")
+    }
+
+    // Lazy, unlike the Retrofit clients below: the cache directory is fixed for the process, so
+    // there's nothing here that can go stale the way a user-editable base URL can.
+    private val client: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .addInterceptor(SentryErrorInterceptor())
+            .apply {
+                // Honours the Cache-Control the GTFS proxy now sets on stop-routes, route-stops
+                // and shapes — static timetable data the app was refetching on every screen open.
+                httpCacheDir?.let { cache(okhttp3.Cache(it, HTTP_CACHE_BYTES)) }
+                // Everything the app talks to lives behind one host, so OkHttp's default of 5
+                // concurrent requests per host is the app's real ceiling, not the 64 global one.
+                dispatcher(okhttp3.Dispatcher().apply { maxRequestsPerHost = 10 })
+            }
+            .build()
+    }
 
     private fun <T> build(baseUrl: String, api: Class<T>): T =
         Retrofit.Builder()
@@ -188,25 +255,29 @@ object Api {
     @Volatile private var tenantUrl: String? = null
     @Volatile private var tenantApi: TenantApi? = null
 
-    /** Read-only GTFS proxy (gtfsr-stop-times). */
-    val service: GtfsApi
-        get() {
-            val url = BackendConfigHolder.current.urlFor(BackendService.GTFS)
-            gtfsApi?.let { if (url == gtfsUrl) return it }
-            return synchronized(this) {
-                gtfsApi?.let { if (url == gtfsUrl) return@synchronized it }
-                build(url, GtfsApi::class.java).also { gtfsApi = it; gtfsUrl = url }
-            }
+    /**
+     * Read-only GTFS proxy (gtfsr-stop-times).
+     *
+     * Suspending because resolving the configured URL may have to wait for the first DataStore
+     * read. That wait used to happen on the main thread in `Application.onCreate` instead. Once
+     * the config has landed this returns without suspending.
+     */
+    suspend fun service(): GtfsApi {
+        val url = BackendConfigHolder.current().urlFor(BackendService.GTFS)
+        gtfsApi?.let { if (url == gtfsUrl) return it }
+        return synchronized(this) {
+            gtfsApi?.let { if (url == gtfsUrl) return@synchronized it }
+            build(url, GtfsApi::class.java).also { gtfsApi = it; gtfsUrl = url }
         }
+    }
 
     /** Stateful write API (tfi-tenant-api). */
-    val tenant: TenantApi
-        get() {
-            val url = BackendConfigHolder.current.urlFor(BackendService.TENANT)
-            tenantApi?.let { if (url == tenantUrl) return it }
-            return synchronized(this) {
-                tenantApi?.let { if (url == tenantUrl) return@synchronized it }
-                build(url, TenantApi::class.java).also { tenantApi = it; tenantUrl = url }
-            }
+    suspend fun tenant(): TenantApi {
+        val url = BackendConfigHolder.current().urlFor(BackendService.TENANT)
+        tenantApi?.let { if (url == tenantUrl) return it }
+        return synchronized(this) {
+            tenantApi?.let { if (url == tenantUrl) return@synchronized it }
+            build(url, TenantApi::class.java).also { tenantApi = it; tenantUrl = url }
         }
+    }
 }

@@ -16,8 +16,12 @@ class TfiApp : Application() {
         super.onCreate()
 
         // Must run before anything touches Api — widgets, workers and the on-device server all
-        // reach it without MainActivity ever having run.
+        // reach it without MainActivity ever having run. Both calls return immediately: the
+        // config is filled in on IO (callers of Api suspend until it lands) and Api.init only
+        // records a cache path. Nothing here touches the disk on the main thread.
         BackendConfigHolder.init(this)
+        Api.init(this)
+        PaletteCache.init(this)
 
         // Debug builds only. Sentry collects crash reports, device metadata and IP addresses,
         // which for a published app means a Play Data safety declaration covering an SDK we get

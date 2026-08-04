@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 private const val MAX_ENTRIES = 10
@@ -26,9 +27,12 @@ private val gson = Gson()
 private val type = object : TypeToken<List<SearchHistoryEntry>>() {}.type
 
 class SearchHistoryStore(private val context: Context) {
-    val flow: Flow<List<SearchHistoryEntry>> = context.dataStore.data.map { prefs ->
-        prefs[HISTORY_KEY]?.let { gson.fromJson<List<SearchHistoryEntry>>(it, type) } ?: emptyList()
-    }
+    // See FavouritesStore: narrowed to this key and deduped before parsing, so a write anywhere
+    // else in the shared DataStore doesn't re-run Gson here.
+    val flow: Flow<List<SearchHistoryEntry>> = context.dataStore.data
+        .map { it[HISTORY_KEY] }
+        .distinctUntilChanged()
+        .map { json -> json?.let { gson.fromJson<List<SearchHistoryEntry>>(it, type) } ?: emptyList() }
 
     /** Records a visit, moving it to the front if already present. */
     suspend fun record(entry: SearchHistoryEntry) = update { current ->

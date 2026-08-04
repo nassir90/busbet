@@ -108,7 +108,7 @@ class NearestFavouriteWidget : GlanceAppWidget() {
         // rather than blanking it. One stop failing no longer wipes the others either.
         val staleLabels = HashMap<String, String>()
         val stops = nearest.map { (fav, distance) ->
-            val fresh = runCatching { Api.service.departures(fav.code).departures.take(3) }.getOrNull()
+            val fresh = runCatching { Api.service().departures(fav.code).departures.take(3) }.getOrNull()
             if (fresh != null) {
                 WidgetCache.save(context, fav.code, fresh)
                 NearestStop(fav, fresh, distance)

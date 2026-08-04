@@ -74,7 +74,7 @@ class BusNotificationService : Service() {
 
         active.forEach { window ->
             runCatching {
-                val deps = Api.service.departures(window.stopCode).departures
+                val deps = Api.service().departures(window.stopCode).departures
                 val matching = deps.filter { d ->
                     window.routes.isEmpty() || d.routeShortName in window.routes
                 }.take(2)

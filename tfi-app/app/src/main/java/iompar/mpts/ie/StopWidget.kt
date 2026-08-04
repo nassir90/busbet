@@ -86,7 +86,7 @@ class StopWidget : GlanceAppWidget() {
         // A failed fetch must not destroy what's on screen. Fall back to the last good result
         // and mark it stale rather than blanking the widget.
         val fresh: List<Departure>? = if (code != null) {
-            runCatching { Api.service.departures(code).departures.take(3) }.getOrNull()
+            runCatching { Api.service().departures(code).departures.take(3) }.getOrNull()
         } else null
         if (fresh != null && code != null) WidgetCache.save(context, code, fresh)
 

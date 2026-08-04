@@ -271,6 +271,24 @@ fun renderFadedLine(
 }
 
 /**
+ * Sets [marker]'s icon only when something about it actually changed.
+ *
+ * The update block reruns on every poll, and it used to allocate a fresh [BusMarkerDrawable] for
+ * every vehicle each time — including the common case where the bus had only moved, which the
+ * position assignment already handles. The identity is stashed on the marker's related-object slot
+ * (unused here) rather than in a side map, so it can't drift out of sync with the overlay list.
+ */
+fun setMarkerIcon(marker: Marker, key: String, build: () -> android.graphics.drawable.Drawable) {
+    if (marker.relatedObject == key) return
+    marker.icon = build()
+    marker.relatedObject = key
+}
+
+/** Identity of a bus marker's appearance — everything [BusMarkerDrawable] renders from. */
+fun busIconKey(route: String, fillArgb: Int, textArgb: Int, bearing: Float?): String =
+    "$route|$fillArgb|$textArgb|${bearing?.let { Math.round(it / 5f) * 5 }}"
+
+/**
  * osmdroid draws overlays in list order and every diff appends, so without this the z-order
  * depends on whatever sequence things happened to be added in — lines could end up over the
  * buses one frame and under them the next. Lines, then vehicles, then stops on top.

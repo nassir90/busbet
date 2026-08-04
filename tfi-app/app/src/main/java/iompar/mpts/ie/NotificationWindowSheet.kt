@@ -50,23 +50,24 @@ fun NotificationWindowSheet(
     var availRoutes   by remember { mutableStateOf<List<String>>(emptyList()) }
     var loadingRoutes by remember { mutableStateOf(false) }
 
-    // Debounced stop search
+    // Debounced stop search. Shares SEARCH_DEBOUNCE_MS with the home screen's search — the same
+    // interaction was running on two different timings.
     LaunchedEffect(stopQuery) {
         if (stopQuery.length >= 2 && stopQuery != stopName) {
-            delay(200)
-            runCatching { Api.service.searchStops(stopQuery) }
+            delay(SEARCH_DEBOUNCE_MS)
+            runCatching { Api.service().searchStops(stopQuery) }
                 .onSuccess { stopResults = it.take(6) }
         } else if (stopQuery.isEmpty()) {
             stopResults = emptyList()
         }
     }
 
-    // Fetch ALL routes for the stop from static GTFS (not just current departures)
+    // ALL routes for the stop from static GTFS (not just current departures). Shared cache: the
+    // stop board's filter dialog asks the same question, and it can't change while the app is open.
     LaunchedEffect(stopCode) {
         if (stopCode.isEmpty()) { availRoutes = emptyList(); return@LaunchedEffect }
         loadingRoutes = true
-        runCatching { Api.service.stopRoutes(stopCode) }
-            .onSuccess { availRoutes = it.sorted() }
+        availRoutes = StopRoutesCache.get(stopCode)
         loadingRoutes = false
     }
 
