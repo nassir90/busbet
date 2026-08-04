@@ -2,16 +2,19 @@ package iompar.mpts.ie.server
 
 import iompar.mpts.ie.DeparturesResponse
 import iompar.mpts.ie.Favourite
+import iompar.mpts.ie.FeatureRequest
 import iompar.mpts.ie.NotificationWindow
 import iompar.mpts.ie.Stop
 import iompar.mpts.ie.service.AppServices
 import iompar.mpts.ie.service.BackendConfigSnapshot
 import iompar.mpts.ie.service.BackendConfigService
 import iompar.mpts.ie.service.FavouritesService
+import iompar.mpts.ie.service.FeatureRequestService
 import iompar.mpts.ie.service.NotificationWindowService
 import iompar.mpts.ie.service.SettingsService
 import iompar.mpts.ie.service.SettingsSnapshot
 import iompar.mpts.ie.service.TransitQueryService
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
@@ -23,8 +26,10 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * Proves the HTTP adapter has no logic of its own: every route just delegates to [AppServices].
@@ -61,6 +66,22 @@ class ApiRoutesTest {
         assertEquals(45, settings.snapshot.busDisplayThresholdMin)
         // Untouched fields stay as they were.
         assertEquals(false, settings.snapshot.locationAware)
+    }
+
+    @Test
+    fun `DELETE feature request drops it and returns what is left`() = testApplication {
+        val requests = FakeFeatureRequests(
+            mutableListOf(
+                FeatureRequest(id = "a", createdAt = 1, screen = "Home", context = "{}", description = "one"),
+                FeatureRequest(id = "b", createdAt = 2, screen = "Home", context = "{}", description = "two"),
+            ),
+        )
+        application {
+            routing { route("/api") { apiRoutes(FakeServices(featureRequests = requests)) } }
+        }
+        val body = client.delete("/api/feature-requests/a").bodyAsText()
+        assertFalse(body.contains("\"id\":\"a\""))
+        assertTrue(body.contains("\"id\":\"b\""))
     }
 }
 
@@ -106,6 +127,14 @@ private class FakeTransit : TransitQueryService {
         DeparturesResponse(Stop("x", "x", "x"), emptyList())
 }
 
+private class FakeFeatureRequests(private val requests: MutableList<FeatureRequest> = mutableListOf()) :
+    FeatureRequestService {
+    override suspend fun list(): List<FeatureRequest> = requests
+    override suspend fun get(id: String): FeatureRequest? = requests.firstOrNull { it.id == id }
+    override suspend fun screenshot(id: String): File? = null
+    override suspend fun delete(id: String) { requests.removeAll { it.id == id } }
+}
+
 private class FakeBackendConfig : BackendConfigService {
     private var root = "https://example.test"
     private var derive = true
@@ -128,4 +157,5 @@ private class FakeServices(
     override val notificationWindows: NotificationWindowService = FakeNotificationWindows(),
     override val transit: TransitQueryService = FakeTransit(),
     override val backend: BackendConfigService = FakeBackendConfig(),
+    override val featureRequests: FeatureRequestService = FakeFeatureRequests(),
 ) : AppServices

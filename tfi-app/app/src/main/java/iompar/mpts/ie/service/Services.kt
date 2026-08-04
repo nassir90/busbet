@@ -8,11 +8,16 @@ import iompar.mpts.ie.isValidBaseUrl
 import iompar.mpts.ie.DeparturesResponse
 import iompar.mpts.ie.Favourite
 import iompar.mpts.ie.FavouritesStore
+import iompar.mpts.ie.FeatureRequest
+import iompar.mpts.ie.FeatureRequestStore
 import iompar.mpts.ie.NotificationWindow
 import iompar.mpts.ie.NotificationWindowStore
 import iompar.mpts.ie.SettingsStore
 import iompar.mpts.ie.Stop
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * The services layer: the single source of truth for everything both transports (the MCP server
@@ -62,6 +67,19 @@ interface TransitQueryService {
     suspend fun departures(stopCode: String, time: Long? = null): DeparturesResponse
 }
 
+/**
+ * The feature requests filed from the app's top-bar hold gesture, for whatever turns them into
+ * tickets. Read-and-delete only: they are written by the person holding the phone, and the point of
+ * exposing them here is that an agent can collect a request, file it, and clear it off the device.
+ */
+interface FeatureRequestService {
+    suspend fun list(): List<FeatureRequest>
+    suspend fun get(id: String): FeatureRequest?
+    /** The annotated PNG, or null when the capture failed or the request is gone. */
+    suspend fun screenshot(id: String): File?
+    suspend fun delete(id: String)
+}
+
 /** Where the app points its backends, and what each service currently resolves to. */
 data class BackendConfigSnapshot(
     val root: String,
@@ -91,6 +109,7 @@ interface AppServices {
     val notificationWindows: NotificationWindowService
     val transit: TransitQueryService
     val backend: BackendConfigService
+    val featureRequests: FeatureRequestService
 }
 
 // --- Default implementations: thin wrappers over the existing stores / Api ------------------
@@ -163,6 +182,14 @@ private class DefaultBackendConfigService(
     }
 }
 
+/** Feature requests are loose files, so every call here is disk work and belongs off the caller's thread. */
+private class DefaultFeatureRequestService(private val store: FeatureRequestStore) : FeatureRequestService {
+    override suspend fun list() = withContext(Dispatchers.IO) { store.list() }
+    override suspend fun get(id: String) = withContext(Dispatchers.IO) { store.get(id) }
+    override suspend fun screenshot(id: String) = withContext(Dispatchers.IO) { store.screenshotFile(id) }
+    override suspend fun delete(id: String) = withContext(Dispatchers.IO) { store.delete(id) }
+}
+
 /** Production wiring: builds every service over the real stores for the given [context]. */
 class DefaultAppServices(context: Context) : AppServices {
     private val appContext = context.applicationContext
@@ -173,4 +200,6 @@ class DefaultAppServices(context: Context) : AppServices {
     override val transit: TransitQueryService = DefaultTransitQueryService()
     override val backend: BackendConfigService =
         DefaultBackendConfigService(BackendConfigStore(appContext))
+    override val featureRequests: FeatureRequestService =
+        DefaultFeatureRequestService(FeatureRequestStore(appContext))
 }

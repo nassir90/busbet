@@ -28,7 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 /** A request (from a home-screen widget tap) to jump straight to a stop's board. */
 data class WidgetStopRequest(val stopCode: String, val seq: Int)
@@ -101,6 +103,8 @@ sealed class Screen {
         val scheduledDeparture: String,
         val estimatedDeparture: String?,
     ) : Screen()
+    /** Filing a request about whatever [FeatureRequestDraft] was captured from. */
+    data class FeatureRequest(val draft: FeatureRequestDraft) : Screen()
 }
 
 @Composable
@@ -165,6 +169,36 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
         else { delay(300); timeController.committedSec = q }
     }
 
+    // Holding the top bar for five seconds files a feature request about the screen underneath.
+    // The gesture is hung here, once, rather than on each screen's TopAppBar: every screen would
+    // otherwise have to remember to wire it, and the capture has to happen before any navigation
+    // so that what is photographed is what the user was complaining about.
+    val activity = context as? ComponentActivity
+    val haptics = LocalHapticFeedback.current
+    val onNotificationsPage = pagerState.currentPage == 1
+    val openFeatureRequest = {
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        val screen = if (onNotificationsPage) null else stack.lastOrNull()
+        val title = describeScreen(screen, onNotificationsPage)
+        val contextJson = screenContextJson(screen, onNotificationsPage)
+        val push = { bitmap: android.graphics.Bitmap? ->
+            stack.add(Screen.FeatureRequest(FeatureRequestDraft(title, contextJson, bitmap)))
+            // The stack only shows on page 0, so a request filed from the notifications page has
+            // to come back across to see it.
+            if (onNotificationsPage) scope.launch { pagerState.animateScrollToPage(0) }
+            Unit
+        }
+        if (activity != null) captureWindow(activity) { push(it) } else push(null)
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .holdTopBarForFeatureRequest(
+                enabled = stack.lastOrNull() !is Screen.FeatureRequest,
+                onTrigger = openFeatureRequest,
+            ),
+    ) {
     // Swipe-to-switch is disabled: the pager is driven only by explicit navigation
     // actions, so a horizontal drag on a map (or anything else) on page 0 can never
     // be mistaken for a page transition to the notifications screen.
@@ -270,8 +304,13 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
                     estimatedDeparture = top.estimatedDeparture,
                     onBack = { pop() },
                 )
+                is Screen.FeatureRequest -> FeatureRequestScreen(
+                    draft = top.draft,
+                    onBack = { pop() },
+                )
             }
         }
     }
     } // end HorizontalPager
+    } // end feature-request gesture Box
 }

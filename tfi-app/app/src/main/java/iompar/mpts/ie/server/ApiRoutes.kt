@@ -7,6 +7,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveText
+import io.ktor.server.response.respondFile
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
@@ -106,6 +107,25 @@ fun Route.apiRoutes(services: AppServices) {
                 ?: return@delete call.respondJson(mapOf("error" to "missing id"), HttpStatusCode.BadRequest)
             services.notificationWindows.delete(id)
             call.respondJson(services.notificationWindows.list())
+        }
+    }
+
+    route("/feature-requests") {
+        get { call.respondJson(services.featureRequests.list()) }
+        // The screenshot is served as a file rather than inlined as base64 in the listing: a
+        // full-resolution PNG per request would make the list unusable for whatever reads it first.
+        get("/{id}/screenshot") {
+            val id = call.parameters["id"]
+                ?: return@get call.respondJson(mapOf("error" to "missing id"), HttpStatusCode.BadRequest)
+            val file = services.featureRequests.screenshot(id)
+                ?: return@get call.respondJson(mapOf("error" to "no screenshot"), HttpStatusCode.NotFound)
+            call.respondFile(file)
+        }
+        delete("/{id}") {
+            val id = call.parameters["id"]
+                ?: return@delete call.respondJson(mapOf("error" to "missing id"), HttpStatusCode.BadRequest)
+            services.featureRequests.delete(id)
+            call.respondJson(services.featureRequests.list())
         }
     }
 
