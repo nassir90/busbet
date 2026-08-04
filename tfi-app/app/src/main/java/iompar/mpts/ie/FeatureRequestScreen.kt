@@ -5,13 +5,22 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.*
@@ -23,10 +32,18 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
@@ -37,6 +54,7 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -44,6 +62,28 @@ import kotlin.math.roundToInt
 
 /** A drag shorter than this in either direction is a stray tap, not a box. */
 private const val MIN_BOX_PX = 24f
+
+/** How close to a corner counts as grabbing its resize handle. */
+private val HANDLE_GRAB = 28.dp
+
+/** The corner a resize drag has hold of. */
+private enum class Handle { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+
+/**
+ * Labels address a box from prose, so they have to survive being pasted into a sentence: no spaces
+ * to swallow the next word, and no `#` to start a second reference inside the first.
+ */
+private fun sanitizeLabel(raw: String): String =
+    raw.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.take(12)
+
+/**
+ * Rewrites every `#old` in [text] to `#new`.
+ *
+ * The lookahead is what stops `#1` from eating the start of `#10` — without it, renaming box 1
+ * would quietly corrupt every other reference that happens to share its prefix.
+ */
+private fun renameRefs(text: String, old: String, new: String): String =
+    Regex("#" + Regex.escape(old) + "(?![A-Za-z0-9_-])").replace(text, "#$new")
 
 /**
  * Files a feature request against the screen the user was just looking at.
@@ -66,11 +106,20 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
     var showContext by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
 
-    /** Drops a reference to box [index] in at the cursor, which is the point of the chips. */
-    fun insertRef(index: Int) {
+    // Which box is in move mode, by its stable index. Null is the ordinary drawing state.
+    var selected by remember { mutableStateOf<Int?>(null) }
+    var renaming by remember { mutableStateOf<FeatureRequestBox?>(null) }
+    // Where the finger is while dragging a box, and where the bin sits — both in window
+    // coordinates, because the bin lives outside the annotator and the two have to be compared.
+    var dragPointer by remember { mutableStateOf<Offset?>(null) }
+    var binBounds by remember { mutableStateOf<Rect?>(null) }
+    val overBin = dragPointer?.let { p -> binBounds?.contains(p) } ?: false
+
+    /** Drops a reference to [name] in at the cursor, which is the point of the chips. */
+    fun insertRef(name: String) {
         val text = description.text
         val at = description.selection.end.coerceIn(0, text.length)
-        val ref = if (at > 0 && !text[at - 1].isWhitespace()) " #$index " else "#$index "
+        val ref = if (at > 0 && !text[at - 1].isWhitespace()) " #$name " else "#$name "
         description = TextFieldValue(
             text = text.substring(0, at) + ref + text.substring(at),
             selection = TextRange(at + ref.length),
@@ -176,18 +225,50 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
             Annotator(
                 draft = draft,
                 boxes = boxes,
-                onAddBox = { boxes = boxes + it.copy(index = boxes.size + 1) },
+                selected = selected,
+                // Indices come from a counter, not the list length: after a deletion, size + 1
+                // would hand out an index that an existing "#n" in the description already means.
+                onAddBox = { box ->
+                    boxes = boxes + box.copy(index = (boxes.maxOfOrNull { it.index } ?: 0) + 1)
+                },
+                onUpdateBox = { box -> boxes = boxes.map { if (it.index == box.index) box else it } },
+                onSelect = { selected = it },
                 onReference = { insertRef(it) },
+                onRename = { renaming = it },
+                onDragPointer = { dragPointer = it },
+                onDropped = {
+                    if (overBin) {
+                        // The reference text is left alone. A dangling "#2" is a visible loose end
+                        // the user can delete; silently editing their prose is worse than the mess.
+                        boxes = boxes.filterNot { it.index == selected }
+                        selected = null
+                    }
+                    dragPointer = null
+                },
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
 
-            Text(
-                if (boxes.isEmpty()) "Drag on the screenshot to box a detail."
-                else "Tap a number to reference it in the description.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
+            // The hint row doubles as the bin. Showing the bin only in move mode is right, but
+            // growing the column to make room for it would shove the screenshot up mid-drag and
+            // slide the box out from under the finger — so it takes over a row that always exists.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .onGloballyPositioned { binBounds = it.boundsInWindow() },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected != null) {
+                    Bin(active = overBin)
+                } else {
+                    Text(
+                        if (boxes.isEmpty()) "Drag on the screenshot to box a detail."
+                        else "Tap a number to reference it. Hold a box to move it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
             OutlinedTextField(
                 value = description,
@@ -223,6 +304,81 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
             ) { Text("Save request") }
         }
     }
+
+    renaming?.let { box ->
+        RenameDialog(
+            box = box,
+            onDismiss = { renaming = null },
+            onRename = { newName ->
+                val old = box.name
+                if (newName != old) {
+                    boxes = boxes.map { if (it.index == box.index) it.copy(label = newName) else it }
+                    // The whole point of a name is that the description already refers to it.
+                    description = description.copy(text = renameRefs(description.text, old, newName))
+                }
+                renaming = null
+            },
+        )
+    }
+}
+
+/** Drop target for the box being dragged. Grows and turns to the error colour once it will catch. */
+@Composable
+private fun Bin(active: Boolean) {
+    val color = if (active) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            Icons.Filled.Delete,
+            contentDescription = "Drag a box here to delete it",
+            tint = color,
+            modifier = Modifier.size(if (active) 32.dp else 24.dp),
+        )
+        Text(
+            if (active) "Release to delete" else "Drag here to delete",
+            style = MaterialTheme.typography.bodySmall,
+            color = color,
+        )
+    }
+}
+
+/** Renames a box, and with it every `#name` already typed into the description. */
+@Composable
+private fun RenameDialog(
+    box: FeatureRequestBox,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+) {
+    var value by remember(box.index) { mutableStateOf(box.name) }
+    val cleaned = sanitizeLabel(value)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename #${box.name}") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = sanitizeLabel(it) },
+                    singleLine = true,
+                    label = { Text("Name") },
+                )
+                Text(
+                    "References in the description are updated too.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onRename(cleaned) }, enabled = cleaned.isNotBlank()) {
+                Text("Rename")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**
@@ -236,8 +392,14 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
 private fun Annotator(
     draft: FeatureRequestDraft,
     boxes: List<FeatureRequestBox>,
+    selected: Int?,
     onAddBox: (FeatureRequestBox) -> Unit,
-    onReference: (Int) -> Unit,
+    onUpdateBox: (FeatureRequestBox) -> Unit,
+    onSelect: (Int?) -> Unit,
+    onReference: (String) -> Unit,
+    onRename: (FeatureRequestBox) -> Unit,
+    onDragPointer: (Offset?) -> Unit,
+    onDropped: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val bitmap = draft.screenshot
@@ -252,30 +414,106 @@ private fun Annotator(
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var dragStart by remember { mutableStateOf(Offset.Zero) }
     var dragEnd by remember { mutableStateOf<Offset?>(null) }
+    var origin by remember { mutableStateOf(Offset.Zero) }
 
     val drawn = remember(containerSize, bitmap) { drawnRect(containerSize, bitmap.width, bitmap.height) }
     val accent = MaterialTheme.colorScheme.primary
+    val haptics = LocalHapticFeedback.current
+
+    // Move mode needs a tell, and a box is a static outline with nothing else to animate — so it
+    // wobbles, the way a long-pressed launcher icon does.
+    //
+    // Kept small on purpose. The angle is applied about the centre, so the corners swing further
+    // the bigger the box: at 1.6° a box spanning most of the screenshot throws its corners about
+    // 14px, which reads as a wobbling picture rather than a picked-up object.
+    val wobble by rememberInfiniteTransition(label = "wobble").animateFloat(
+        initialValue = -0.7f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(tween(180), RepeatMode.Reverse),
+        label = "wobble",
+    )
+
+    // The gesture outlives the composition that started it: pointerInput only restarts when its
+    // key changes, so anything it captured directly would be frozen at that moment. In particular
+    // onDropped closes over whether the finger is over the bin, which is false when the drag
+    // begins and true by the time it ends — captured directly, a drop on the bin never deletes.
+    val current = rememberUpdatedState(boxes to selected)
+    val addBox by rememberUpdatedState(onAddBox)
+    val updateBox by rememberUpdatedState(onUpdateBox)
+    val select by rememberUpdatedState(onSelect)
+    val dragPointer by rememberUpdatedState(onDragPointer)
+    val dropped by rememberUpdatedState(onDropped)
 
     Box(
         modifier
             .onSizeChanged { containerSize = it }
+            .onGloballyPositioned { origin = it.positionInWindow() }
             .pointerInput(drawn) {
                 val area = drawn ?: return@pointerInput
-                detectDragGestures(
-                    onDragStart = { dragStart = it; dragEnd = it },
-                    onDrag = { change, delta ->
-                        change.consume()
-                        dragEnd = (dragEnd ?: dragStart) + delta
-                    },
-                    onDragEnd = {
-                        val end = dragEnd
-                        if (end != null && abs(end.x - dragStart.x) >= MIN_BOX_PX && abs(end.y - dragStart.y) >= MIN_BOX_PX) {
-                            onAddBox(toFractions(dragStart, end, area))
+                val grab = HANDLE_GRAB.toPx()
+
+                awaitEachGesture {
+                    val (allBoxes, sel) = current.value
+                    val active = allBoxes.firstOrNull { it.index == sel }
+                    val down = awaitFirstDown()
+                    val start = down.position
+
+                    val handle = active?.let { handleAt(start, it.toPixels(area), grab) }
+                    if (active != null && handle != null) {
+                        var live: FeatureRequestBox = active
+                        drag(down.id) { change ->
+                            change.consume()
+                            live = live.resized(handle, change.position, area)
+                            updateBox(live)
                         }
-                        dragEnd = null
-                    },
-                    onDragCancel = { dragEnd = null },
-                )
+                        return@awaitEachGesture
+                    }
+                    if (active != null && active.toPixels(area).contains(start)) {
+                        moveBox(down.id, active, start, area, origin, updateBox, dragPointer)
+                        dropped()
+                        return@awaitEachGesture
+                    }
+
+                    // Otherwise this is a press on the picture: a hold selects whatever is under it,
+                    // a drag draws a new box, and a plain tap dismisses move mode.
+                    var lifted = false
+                    val slop = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                        awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                            .also { if (it == null) lifted = true }
+                    }
+                    when {
+                        slop != null -> {
+                            dragStart = start
+                            dragEnd = slop.position
+                            drag(down.id) { change ->
+                                change.consume()
+                                dragEnd = change.position
+                            }
+                            val end = dragEnd
+                            if (end != null &&
+                                abs(end.x - dragStart.x) >= MIN_BOX_PX &&
+                                abs(end.y - dragStart.y) >= MIN_BOX_PX
+                            ) {
+                                onAddBox(toFractions(dragStart, end, area))
+                            }
+                            dragEnd = null
+                        }
+                        lifted -> onSelect(null)
+                        else -> {
+                            // Topmost first: later boxes are drawn over earlier ones, so when they
+                            // overlap the one you can see is the one you meant to grab.
+                            val hit = allBoxes.lastOrNull { it.toPixels(area).contains(start) }
+                            if (hit == null) {
+                                onSelect(null)
+                            } else {
+                                onSelect(hit.index)
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                moveBox(down.id, hit, start, area, origin, onUpdateBox, onDragPointer)
+                                onDropped()
+                            }
+                        }
+                    }
+                }
             },
     ) {
         Image(
@@ -290,7 +528,17 @@ private fun Annotator(
                 val stroke = Stroke(width = 3.dp.toPx())
                 boxes.forEach { box ->
                     val rect = box.toPixels(area)
-                    drawRect(accent, topLeft = rect.topLeft, size = rect.size, style = stroke)
+                    if (box.index == selected) {
+                        rotate(wobble, pivot = rect.center) {
+                            drawRect(accent, topLeft = rect.topLeft, size = rect.size, style = stroke)
+                            // Filled corners, so it is obvious the corners are the grabbable part.
+                            val r = 6.dp.toPx()
+                            listOf(rect.topLeft, rect.topRight, rect.bottomLeft, rect.bottomRight)
+                                .forEach { drawCircle(accent, radius = r, center = it) }
+                        }
+                    } else {
+                        drawRect(accent, topLeft = rect.topLeft, size = rect.size, style = stroke)
+                    }
                 }
                 dragEnd?.let { end ->
                     val rect = Rect(
@@ -307,16 +555,19 @@ private fun Annotator(
             // on a busy board, a detached list of numbers tells you nothing about which is which.
             boxes.forEach { box ->
                 val rect = box.toPixels(area)
+                val isSelected = box.index == selected
                 Surface(
                     color = accent,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier
                         .offset { IntOffset(rect.left.roundToInt(), max(0f, rect.top - 22.dp.toPx()).roundToInt()) }
-                        .clickable { onReference(box.index) },
+                        // In move mode the chip is the way to rename; otherwise it is the way to
+                        // cite the box. One control, and which job it is doing is on screen.
+                        .clickable { if (isSelected) onRename(box) else onReference(box.name) },
                 ) {
                     Text(
-                        "#${box.index}",
+                        if (isSelected) "#${box.name}  ✎" else "#${box.name}",
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     )
@@ -358,6 +609,78 @@ private fun FeatureRequestBox.toPixels(drawn: Rect) = Rect(
     drawn.top + bottom * drawn.height,
 )
 
+/**
+ * Follows the finger with [box] until it lifts, reporting the pointer in window coordinates.
+ *
+ * Top-level rather than local to the gesture because [AwaitPointerEventScope] restricts suspension:
+ * only member and extension functions of the scope itself may be called from inside it.
+ */
+private suspend fun AwaitPointerEventScope.moveBox(
+    pointerId: PointerId,
+    box: FeatureRequestBox,
+    start: Offset,
+    area: Rect,
+    origin: Offset,
+    onUpdateBox: (FeatureRequestBox) -> Unit,
+    onDragPointer: (Offset?) -> Unit,
+) {
+    var live = box
+    var last = start
+    onDragPointer(origin + start)
+    drag(pointerId) { change ->
+        change.consume()
+        live = live.translated(change.position - last, area)
+        last = change.position
+        onUpdateBox(live)
+        onDragPointer(origin + change.position)
+    }
+}
+
+/** Which corner of [rect] [point] is grabbing, or null if it is not near one. */
+private fun handleAt(point: Offset, rect: Rect, grab: Float): Handle? {
+    val corners = listOf(
+        Handle.TOP_LEFT to rect.topLeft,
+        Handle.TOP_RIGHT to rect.topRight,
+        Handle.BOTTOM_LEFT to rect.bottomLeft,
+        Handle.BOTTOM_RIGHT to rect.bottomRight,
+    )
+    return corners.minByOrNull { (_, c) -> (c - point).getDistance() }
+        ?.takeIf { (_, c) -> (c - point).getDistance() <= grab }
+        ?.first
+}
+
+/**
+ * The box shifted by [delta] container pixels, clamped so it cannot be pushed off the picture.
+ *
+ * The whole rectangle is clamped rather than each edge, so sliding into an edge stops the box
+ * instead of squashing it.
+ */
+private fun FeatureRequestBox.translated(delta: Offset, drawn: Rect): FeatureRequestBox {
+    val dx = (delta.x / drawn.width).coerceIn(-left, 1f - right)
+    val dy = (delta.y / drawn.height).coerceIn(-top, 1f - bottom)
+    return copy(left = left + dx, right = right + dx, top = top + dy, bottom = bottom + dy)
+}
+
+/** The box with [handle]'s corner dragged to [point]. Edges may cross; they are re-sorted after. */
+private fun FeatureRequestBox.resized(handle: Handle, point: Offset, drawn: Rect): FeatureRequestBox {
+    val fx = ((point.x - drawn.left) / drawn.width).coerceIn(0f, 1f)
+    val fy = ((point.y - drawn.top) / drawn.height).coerceIn(0f, 1f)
+    val moved = when (handle) {
+        Handle.TOP_LEFT -> copy(left = fx, top = fy)
+        Handle.TOP_RIGHT -> copy(right = fx, top = fy)
+        Handle.BOTTOM_LEFT -> copy(left = fx, bottom = fy)
+        Handle.BOTTOM_RIGHT -> copy(right = fx, bottom = fy)
+    }
+    // Dragging a corner past its opposite is a normal thing to do with a mouse or a thumb; the
+    // rectangle should flip rather than invert into something that draws as nothing.
+    return moved.copy(
+        left = min(moved.left, moved.right),
+        right = max(moved.left, moved.right),
+        top = min(moved.top, moved.bottom),
+        bottom = max(moved.top, moved.bottom),
+    )
+}
+
 /** The shared message: the description, what each box refers to, and the machine-readable context. */
 private fun shareBody(request: FeatureRequest): String = buildString {
     appendLine("Feature request — ${request.screen}")
@@ -368,7 +691,7 @@ private fun shareBody(request: FeatureRequest): String = buildString {
         appendLine("Annotations (fractions of the screenshot, left/top/right/bottom):")
         request.boxes.forEach { box ->
             appendLine(
-                "#${box.index}: %.3f, %.3f, %.3f, %.3f".format(box.left, box.top, box.right, box.bottom),
+                "#${box.name}: %.3f, %.3f, %.3f, %.3f".format(box.left, box.top, box.right, box.bottom),
             )
         }
     }

@@ -27,13 +27,24 @@ import java.util.UUID
 
 /** A rectangle drawn on the screenshot, in fractions of the image so it survives any scaling. */
 data class FeatureRequestBox(
-    /** 1-based, and what a "#1" in the description refers to. */
+    /**
+     * Stable identity, handed out from a counter rather than the position in the list.
+     *
+     * It has to survive a deletion: renumbering the survivors would leave every "#2" already typed
+     * into the description silently pointing at a different box.
+     */
     val index: Int,
     val left: Float,
     val top: Float,
     val right: Float,
     val bottom: Float,
+    /** What the user renamed it to. Null or blank means it is still known by its [index]. */
+    val label: String? = null,
 )
+
+/** What this box is called — its [label] if it has one, otherwise its number. */
+val FeatureRequestBox.name: String
+    get() = label?.takeIf { it.isNotBlank() } ?: index.toString()
 
 /**
  * One filed request.
@@ -207,7 +218,7 @@ fun Bitmap.withAnnotations(boxes: List<FeatureRequestBox>): Bitmap {
         canvas.drawRect(left, top, box.right * out.width, box.bottom * out.height, outline)
         // Below the top edge when the box is at the very top, so the number is never clipped away.
         val baseline = if (top > label.textSize * 1.4f) top - stroke * 2f else top + label.textSize * 1.2f
-        canvas.drawText("#${box.index}", left, baseline, label)
+        canvas.drawText("#${box.name}", left, baseline, label)
     }
     return out
 }
