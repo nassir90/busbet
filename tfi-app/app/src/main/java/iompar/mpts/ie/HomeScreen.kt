@@ -648,9 +648,11 @@ private fun FavouriteCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (distanceLabel != null) {
+                            // No separator: the distance is already set apart by its colour, and a
+                            // bullet between two short numbers reads as clutter.
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "· $distanceLabel",
+                                distanceLabel,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )
