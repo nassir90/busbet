@@ -1,7 +1,9 @@
 package iompar.mpts.ie
 
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -83,6 +85,18 @@ fun SettingsScreen(
         scope.launch { settingsStore.setLocationAware(granted) }
     }
 
+    // Grants an imported config needs but this install doesn't hold, walked through one at a time.
+    var pendingGrants by remember { mutableStateOf<List<RestoredGrant>>(emptyList()) }
+    val grantLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val need = pendingGrants.firstOrNull()
+        scope.launch {
+            // A refusal turns the setting off rather than leaving it on and inert. The import is
+            // still honoured — the user said no to the capability, not to the rest of the backup.
+            if (!granted && need != null) need.disable(settingsStore)
+            pendingGrants = pendingGrants.drop(1)
+        }
+    }
+
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -101,7 +115,20 @@ fun SettingsScreen(
             val result = runCatching {
                 val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     ?: error("Couldn't open file for reading")
-                configBackupStore.restore(configBackupStore.fromJson(json))
+                val config = configBackupStore.fromJson(json)
+                configBackupStore.restore(config)
+                config
+            }
+            // Queue the grants before the snackbar, not after: showSnackbar suspends until the
+            // snackbar goes away, so asking afterwards makes the dialog appear several seconds
+            // later, detached from the action that caused it.
+            //
+            // Only ask for what this install is actually missing — re-importing on the device the
+            // backup came from should be silent.
+            result.getOrNull()?.let { config ->
+                pendingGrants = config.requiredGrants().filterNot { need ->
+                    ContextCompat.checkSelfPermission(context, need.permission) == PackageManager.PERMISSION_GRANTED
+                }
             }
             snackbarHostState.showSnackbar(if (result.isSuccess) "Config imported" else "Import failed: ${result.exceptionOrNull()?.message}")
         }
@@ -116,6 +143,46 @@ fun SettingsScreen(
                 TextButton(onClick = { scope.launch { action() }; pendingOverwrite = null }) { Text("Replace") }
             },
             dismissButton = { TextButton(onClick = { pendingOverwrite = null }) { Text("Cancel") } },
+        )
+    }
+
+    pendingGrants.firstOrNull()?.let { need ->
+        val remaining = pendingGrants.size
+        AlertDialog(
+            // Not dismissible by tapping away: leaving a setting on with nothing behind it is the
+            // exact state this dialog exists to prevent, so the choice has to be made.
+            onDismissRequest = {},
+            title = { Text("\"${need.setting}\" needs permission") },
+            text = {
+                Column {
+                    Text("The config you imported turns on ${need.setting}, but this install hasn't been granted the permission it needs.")
+                    Spacer(Modifier.height(12.dp))
+                    Text(need.reason)
+                    if (need.permission == android.Manifest.permission.ACCESS_COARSE_LOCATION) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Your location stays on this device. It is never sent anywhere.")
+                    }
+                    if (remaining > 1) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "1 of $remaining",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { grantLauncher.launch(need.permission) }) { Text("Grant") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        need.disable(settingsStore)
+                        pendingGrants = pendingGrants.drop(1)
+                    }
+                }) { Text("Turn it off") }
+            },
         )
     }
 

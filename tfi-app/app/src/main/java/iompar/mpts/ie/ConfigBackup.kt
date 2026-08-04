@@ -22,6 +22,57 @@ data class AppConfig(
     val notificationWindows: List<NotificationWindow> = emptyList(),
 )
 
+/**
+ * A restored setting that only works once the user grants something.
+ *
+ * A backup carries the *preference*, never the grant — permissions are per-install, so a reinstall
+ * or a move to another device restores "location sorting: on" with no location permission behind
+ * it. The setting then reads as enabled and silently does nothing, which is worse than it having
+ * been off, because nothing on screen suggests anything is wrong.
+ */
+data class RestoredGrant(
+    /** The setting as it is named in Settings, so the prompt matches what the user turned on. */
+    val setting: String,
+    /** What stops working without it. */
+    val reason: String,
+    val permission: String,
+    /** Turns the setting back off when the grant is refused, so state matches reality. */
+    val disable: suspend (SettingsStore) -> Unit,
+)
+
+/**
+ * The grants [config] implies, whether or not they are already held.
+ *
+ * Deliberately not filtered here: what is already granted depends on the live install, which is a
+ * caller's concern, and keeping this pure makes it testable.
+ */
+fun AppConfig.requiredGrants(): List<RestoredGrant> = buildList {
+    if (locationAware || hideFarStops) {
+        add(
+            RestoredGrant(
+                setting = "Location-aware mode",
+                reason = "Sorts your favourite stops by distance, and lets the widget show the nearest one.",
+                permission = android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                disable = { it.setLocationAware(false) },
+            ),
+        )
+    }
+    // Only from API 33 — before that, posting a notification needs no runtime grant, so asking
+    // would be a dialog the system has no way to answer.
+    if (notificationWindows.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 33) {
+        add(
+            RestoredGrant(
+                setting = "Bus notifications",
+                reason = "You have ${notificationWindows.size} saved notification window(s); without this they never fire.",
+                permission = android.Manifest.permission.POST_NOTIFICATIONS,
+                // The windows themselves are still worth keeping — they are user data, and the
+                // grant can be given later from the notifications screen.
+                disable = { },
+            ),
+        )
+    }
+}
+
 private val configGson = Gson()
 
 class ConfigBackupStore(
