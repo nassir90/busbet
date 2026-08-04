@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -329,6 +331,10 @@ fun HomeScreen(
                 }
             }
 
+            // Drives the filled/outlined star on stop rows. A set so the lookup stays O(1) per
+            // row rather than scanning the favourites list once for every result.
+            val favouriteCodes = remember(favourites) { favourites.map { it.code }.toSet() }
+
             if (showDropdown) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     LazyColumn(Modifier.heightIn(max = 320.dp)) {
@@ -397,9 +403,34 @@ fun HomeScreen(
                         if (stopResults.isNotEmpty()) {
                             item { SectionLabel("Stops") }
                             items(stopResults) { s ->
+                                val isFavourite = s.stopCode in favouriteCodes
                                 CompactSearchRow(
                                     label = "${s.stopCode}  ${s.stopName}",
                                     services = s.routes,
+                                    // Favouriting is what most searches are for, so it happens on
+                                    // the result row itself. Onboarding was otherwise search →
+                                    // open the stop → star → back, once per stop.
+                                    leading = {
+                                        Icon(
+                                            if (isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                            contentDescription =
+                                                if (isFavourite) "Remove ${s.stopName} from favourites"
+                                                else "Add ${s.stopName} to favourites",
+                                            tint = if (isFavourite) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            // Sized for the touch target, then padded back in so the
+                                            // glyph still matches the 20dp run of icons in the dropdown.
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .clickable {
+                                                    scope.launch {
+                                                        if (isFavourite) favStore.remove(s.stopCode)
+                                                        else favStore.add(s.stopCode, s.stopName, s.stopLat, s.stopLon)
+                                                    }
+                                                }
+                                                .padding(3.dp),
+                                        )
+                                    },
                                     onClick = {
                                         scope.launch {
                                             historyStore.record(
