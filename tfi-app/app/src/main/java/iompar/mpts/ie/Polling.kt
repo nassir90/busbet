@@ -16,6 +16,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** Every live board in the app refreshes on this cadence. */
@@ -70,12 +71,16 @@ fun PollEffect(
  * state, so nothing recomposed when the minute changed: "3 mins" stayed on screen until some
  * unrelated state happened to invalidate the composable, and then jumped. This reads once and then
  * updates on the minute boundary, so the countdown ticks on its own.
+ *
+ * [zone] defaults to [SERVICE_ZONE] because nearly every caller is subtracting this from a time
+ * the backend sent, which is always agency-local. Pass the device zone only for the few things
+ * that are about the user's own day rather than the timetable's.
  */
 @Composable
-fun rememberNowMinutes(): Int {
-    val now by produceState(initialValue = LocalTime.now().let { it.hour * 60 + it.minute }) {
+fun rememberNowMinutes(zone: ZoneId = SERVICE_ZONE): Int {
+    val now by produceState(initialValue = LocalTime.now(zone).let { it.hour * 60 + it.minute }, zone) {
         while (true) {
-            val time = LocalTime.now()
+            val time = LocalTime.now(zone)
             value = time.hour * 60 + time.minute
             // Land just after the next minute boundary rather than drifting on a fixed 60s delay.
             delay(60_000L - (time.second * 1000L + time.nano / 1_000_000L) + 250L)
@@ -94,10 +99,7 @@ fun rememberNowMinutes(): Int {
 fun rememberBoardMinutes(pinnedSec: Long?): Int {
     val live = rememberNowMinutes()
     return remember(pinnedSec, live) {
-        pinnedSec?.let {
-            java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault())
-                .let { z -> z.hour * 60 + z.minute }
-        } ?: live
+        pinnedSec?.let { serviceMinutesAt(it) } ?: live
     }
 }
 
@@ -112,11 +114,15 @@ private val AS_OF_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm
  *
  * [feedTimestamp] is that snapshot's own header timestamp. Backends that predate the field leave
  * it null, and there the fetch time is still the closest thing to an answer we have.
+ *
+ * Resolved in [SERVICE_ZONE], not the device's: this label sits directly beside departure times,
+ * which are agency-local. On a phone outside Ireland a device-zone "as of" would print an hour
+ * that disagrees with the board it is captioning.
  */
 fun asOfTime(feedTimestamp: Long?): LocalTime =
     feedTimestamp
-        ?.let { java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault()).toLocalTime() }
-        ?: LocalTime.now()
+        ?.let { java.time.Instant.ofEpochSecond(it).atZone(SERVICE_ZONE).toLocalTime() }
+        ?: LocalTime.now(SERVICE_ZONE)
 
 /** [asOfTime] rendered the way every board and widget labels it. */
 fun asOfLabel(feedTimestamp: Long?): String = asOfTime(feedTimestamp).format(AS_OF_FORMAT)

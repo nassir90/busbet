@@ -55,6 +55,8 @@ class BusNotificationService : Service() {
     /** Posts/cancels per-window notifications and returns whether any window is currently active. */
     private suspend fun checkAndNotify(): Boolean {
         val windows = NotificationWindowStore(this).flow.first()
+        // A notification window is the user's own schedule, set on their own phone, so it is
+        // matched against the device clock — unlike the departure times below.
         val today   = LocalDate.now().dayOfWeek.value
         val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
 
@@ -97,7 +99,7 @@ class BusNotificationService : Service() {
 
     private fun postBusNotification(window: NotificationWindow, deps: List<Departure>, accentColor: Int) {
         val nm      = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
+        val nowMins = serviceNowMinutes()
 
         // Tap opens the stop board for this window's stop
         val tapIntent = PendingIntent.getActivity(
@@ -114,8 +116,7 @@ class BusNotificationService : Service() {
             .setSummaryText(window.stopName)
 
         deps.forEach { d ->
-            val effMins = toMinutes(d.estimatedDeparture ?: d.scheduledDeparture)
-            val due     = (effMins - nowMins).let { if (it < -720) it + 1440 else it }
+            val due     = minutesUntil(toMinutes(d.estimatedDeparture ?: d.scheduledDeparture), nowMins)
             val dueStr  = if (due <= 0) "Due" else "${due} min"
             val timeStr = d.estimatedDeparture ?: d.scheduledDeparture
 
@@ -127,8 +128,7 @@ class BusNotificationService : Service() {
 
         // Summary line shown in collapsed state
         val summary = deps.joinToString("   ") { d ->
-            val effMins = toMinutes(d.estimatedDeparture ?: d.scheduledDeparture)
-            val due = (effMins - nowMins).let { if (it < -720) it + 1440 else it }
+            val due = minutesUntil(toMinutes(d.estimatedDeparture ?: d.scheduledDeparture), nowMins)
             "${d.routeShortName} ${if (due <= 0) "Due" else "${due}m"}"
         }
 

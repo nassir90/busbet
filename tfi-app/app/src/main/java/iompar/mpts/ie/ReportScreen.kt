@@ -16,10 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,7 +49,9 @@ fun ReportScreen(
             } else {
                 val effective = estimatedDeparture ?: scheduledDeparture
                 val (h, m) = effective.split(":").map { it.toInt() }
-                val now = LocalDateTime.now()
+                // The departure time is a service-zone wall clock, so resolve it to an instant
+                // there; anchoring it to the device's zone would fire the alarm hours out.
+                val now = ZonedDateTime.now(SERVICE_ZONE)
                 var target = now.withHour(h).withMinute(m).withSecond(0).withNano(0)
                 if (target.isBefore(now.minusHours(12))) target = target.plusDays(1)
                 BusWatchScheduler.schedule(
@@ -62,7 +61,7 @@ fun ReportScreen(
                         stopCode = stopCode,
                         stopName = stopName,
                         routeShortName = routeShortName,
-                        triggerAtMillis = target.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                        triggerAtMillis = target.toInstant().toEpochMilli(),
                     ),
                 )
                 watching = true
@@ -79,7 +78,8 @@ fun ReportScreen(
                 tripId = tripId,
                 stopCode = stopCode,
                 routeShortName = routeShortName,
-                serviceDate = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")),
+                // GTFS service date, which is the operator's calendar day, not the device's.
+                serviceDate = serviceToday().format(DateTimeFormatter.ofPattern("yyyyMMdd")),
                 kind = kind,
                 actualTime = actualTime,
                 reportedAt = System.currentTimeMillis() / 1000,
@@ -109,7 +109,8 @@ fun ReportScreen(
     }
 
     fun pickArrivalTime() {
-        val now = LocalTime.now()
+        // The picked time is submitted as a service-clock time, so pre-fill it from that clock.
+        val now = serviceNow()
         TimePickerDialog(
             context,
             { _, hour, minute -> submit("arrived", "%02d:%02d".format(hour, minute)) },
@@ -186,8 +187,7 @@ fun ReportScreen(
             Spacer(Modifier.height(12.dp))
 
             val effective = estimatedDeparture ?: scheduledDeparture
-            val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
-            val due = toMins(effective).let { (it - nowMins).let { d -> if (d < -720) d + 1440 else d } }
+            val due = minutesUntil(toMins(effective), serviceNowMinutes())
             Text(
                 when {
                     due <= 0 -> "Due now"

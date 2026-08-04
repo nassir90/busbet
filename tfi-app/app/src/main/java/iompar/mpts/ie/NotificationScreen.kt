@@ -248,8 +248,9 @@ private fun CalendarGrid(
     val totalHours   = (GRID_END_MIN - GRID_START_MIN) / 60
 
     // The shared ticker, which lands on the minute boundary rather than drifting by however long
-    // after midnight this screen happened to open.
-    val nowMins = rememberNowMinutes()
+    // after midnight this screen happened to open. On the device clock, not the service one: the
+    // grid is the user's own week, drawn against windows they set on this phone.
+    val nowMins = rememberNowMinutes(java.time.ZoneId.systemDefault())
 
     val dragOffsets = remember { mutableStateMapOf<String, Offset>() }
 

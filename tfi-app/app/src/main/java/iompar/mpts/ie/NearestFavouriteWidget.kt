@@ -36,7 +36,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.flow.first
-import java.time.LocalTime
 
 private data class NearestPalette(
     val cardBg: Color,
@@ -271,10 +270,9 @@ class NearestFavouriteWidget : GlanceAppWidget() {
 
     @Composable
     private fun DepRow(d: Departure, pal: NearestPalette) {
-        val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
         val effective = d.estimatedDeparture ?: d.scheduledDeparture
         val parts = effective.split(":").map { it.toInt() }
-        val due = (parts[0] * 60 + parts[1]) - nowMins
+        val due = minutesUntil(parts[0] * 60 + parts[1], serviceNowMinutes())
         val dueLabel = when {
             due <= 0 -> "Due"
             due == 1 -> "1 min"

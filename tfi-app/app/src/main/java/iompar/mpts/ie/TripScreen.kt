@@ -150,8 +150,7 @@ private fun TripStopsList(
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
         items(d.stops, key = { it.stopSequence }) { stop ->
             val effective = stop.estimatedDeparture ?: stop.scheduledDeparture
-            val effectiveMins = toMin(effective)
-            val isPassed = effectiveMins < nowMins
+            val isPassed = minutesUntil(toMin(effective), nowMins) < 0
             val isOrigin = fromStopCode != null && stop.stopCode == fromStopCode
 
             TripStopRow(
@@ -239,7 +238,7 @@ private fun toMin(hhmm: String): Int {
 
 private fun timeLabel(stop: TripStop, nowMins: Int): String {
     val effective = stop.estimatedDeparture ?: stop.scheduledDeparture
-    val diff = toMin(effective) - nowMins
+    val diff = minutesUntil(toMin(effective), nowMins)
     return when {
         diff < -1 -> "${-diff}m ago"
         diff <= 0 -> "Due"

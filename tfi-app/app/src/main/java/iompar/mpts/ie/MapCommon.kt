@@ -125,9 +125,12 @@ enum class RunState { NOT_DEPARTED, RUNNING, FINISHED }
 fun runStateOf(v: VehiclePosition, nowMins: Int): RunState {
     val first = v.firstDeparture?.let { hhmmToMins(it) }
     val last = v.lastArrival?.let { hhmmToMins(it) }
+    // Compared the short way round the clock rather than by magnitude: a trip's span is raw
+    // GTFS, so an after-midnight service starts at "25:10" (1510) while `nowMins` is 30, and a
+    // straight `nowMins < first` would call every such bus NOT_DEPARTED for its whole run.
     return when {
-        first != null && nowMins < first -> RunState.NOT_DEPARTED
-        last != null && nowMins > last -> RunState.FINISHED
+        first != null && minutesUntil(first, nowMins) > 0 -> RunState.NOT_DEPARTED
+        last != null && minutesUntil(last, nowMins) < 0 -> RunState.FINISHED
         else -> RunState.RUNNING
     }
 }

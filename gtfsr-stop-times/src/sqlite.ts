@@ -1,6 +1,7 @@
 import { createClient } from '@libsql/client';
 import type { Client } from '@libsql/client';
 import type { GtfsStorage, Stop, Departure, StopTime, RouteDirection, RouteStop, ShapePoint } from './types.js';
+import { serviceMinutes } from './servicetime.js';
 
 function openDb(path: string): Client {
 	return createClient({ url: `file:${path}` });
@@ -90,7 +91,8 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 			if (activeServiceIds.length === 0) return [];
 
 			const now = atDate ?? new Date();
-			const currentMins = now.getHours() * 60 + now.getMinutes() + hourOffset * 60;
+			// stop_times are agency-local wall-clock, so the window bounds must be too.
+			const currentMins = serviceMinutes(now) + hourOffset * 60;
 			const endMins = currentMins + windowMinutes;
 
 			const placeholders = activeServiceIds.map(() => '?').join(',');
