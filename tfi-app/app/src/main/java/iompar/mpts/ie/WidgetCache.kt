@@ -38,17 +38,22 @@ object WidgetCache {
     private val Context.widgetCacheStore by preferencesDataStore(name = "widget_cache")
 
     private fun departuresKey(code: String) = stringPreferencesKey("widgetCache:departures:$code")
-    private fun fetchedAtKey(code: String) = longPreferencesKey("widgetCache:at:$code")
+    private fun dataAtKey(code: String) = longPreferencesKey("widgetCache:at:$code")
 
     /** Age beyond which the data is worth flagging rather than showing silently. */
     private val STALE_AFTER: Duration = Duration.ofMinutes(2)
 
-    data class Cached(val departures: List<Departure>, val ageMinutes: Long)
+    /**
+     * @param at epoch seconds the departures are true for — the GTFS-R snapshot's timestamp, which
+     *   the age and the widget's "as of" are both measured from. Falls back to the write time only
+     *   when the backend didn't say.
+     */
+    data class Cached(val departures: List<Departure>, val at: Long, val ageMinutes: Long)
 
-    suspend fun save(context: Context, code: String, departures: List<Departure>) {
+    suspend fun save(context: Context, code: String, departures: List<Departure>, at: Long?) {
         context.widgetCacheStore.edit { prefs ->
             prefs[departuresKey(code)] = gson.toJson(departures)
-            prefs[fetchedAtKey(code)] = Instant.now().epochSecond
+            prefs[dataAtKey(code)] = at ?: Instant.now().epochSecond
         }
     }
 
@@ -56,11 +61,11 @@ object WidgetCache {
     suspend fun load(context: Context, code: String): Cached? {
         val prefs = context.widgetCacheStore.data.first()
         val json = prefs[departuresKey(code)] ?: return null
-        val at = prefs[fetchedAtKey(code)] ?: return null
+        val at = prefs[dataAtKey(code)] ?: return null
         val type = object : TypeToken<List<Departure>>() {}.type
         val deps: List<Departure> = runCatching { gson.fromJson<List<Departure>>(json, type) }
             .getOrNull() ?: return null
-        return Cached(deps, Duration.ofSeconds(Instant.now().epochSecond - at).toMinutes())
+        return Cached(deps, at, Duration.ofSeconds(Instant.now().epochSecond - at).toMinutes())
     }
 
     fun isStale(ageMinutes: Long): Boolean = ageMinutes >= STALE_AFTER.toMinutes()
