@@ -39,7 +39,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.flow.first
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 val STOP_CODE_KEY = stringPreferencesKey("stopCode")
@@ -94,7 +93,8 @@ class StopWidget : GlanceAppWidget() {
         val deps = fresh ?: cached?.departures
         val staleLabel = cached?.let { "stale · ${WidgetCache.ageLabel(it.ageMinutes)}" }
 
-        val asOf = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        // Sits under the board's own times, so it reads on the same clock.
+        val asOf = serviceNow().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
         provideContent {
             WidgetUI(context, appWidgetId, code, name, deps, pal, asOf, staleLabel)
@@ -212,10 +212,9 @@ class StopWidget : GlanceAppWidget() {
 
     @Composable
     private fun DepRow(d: Departure, pal: Palette) {
-        val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
         val effective = d.estimatedDeparture ?: d.scheduledDeparture
         val parts = effective.split(":").map { it.toInt() }
-        val due = (parts[0] * 60 + parts[1]) - nowMins
+        val due = minutesUntil(parts[0] * 60 + parts[1], serviceNowMinutes())
         val dueLabel = when {
             due <= 0 -> "Due"
             due == 1 -> "1 min"

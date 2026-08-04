@@ -34,11 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
+import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -101,13 +100,13 @@ private fun signedHhmm(offsetMin: Int): String {
 /** Two-digit minutes with a sign, e.g. "00", "05", "−05", "−59". */
 private fun signedMin(m: Int): String = if (m < 0) "−%02d".format(-m) else "%02d".format(m)
 
+// The instant being pinned is read back on the service clock, because what it selects is a
+// moment in the Dublin timetable: "show me 17:40" has to mean 17:40 on the board.
 private fun absClock(sec: Long): String =
-    LocalDateTime.ofInstant(Instant.ofEpochSecond(sec), ZoneId.systemDefault())
-        .format(DateTimeFormatter.ofPattern("HH:mm"))
+    serviceTimeAt(sec).format(DateTimeFormatter.ofPattern("HH:mm"))
 
 private fun absDate(sec: Long): String =
-    LocalDateTime.ofInstant(Instant.ofEpochSecond(sec), ZoneId.systemDefault())
-        .format(DateTimeFormatter.ofPattern("EEE d MMM"))
+    serviceTimeAt(sec).format(DateTimeFormatter.ofPattern("EEE d MMM"))
 
 /** Clock time, or lowercase "now" when within the current minute. */
 private fun absHeader(sec: Long): String =
@@ -173,10 +172,7 @@ fun TimeTravelChip(controller: TimeController, onClick: () -> Unit) {
 @Composable
 private fun ClockIcon(sec: Long?, modifier: Modifier = Modifier) {
     val tint = LocalContentColor.current
-    val dt = if (sec != null)
-        LocalDateTime.ofInstant(Instant.ofEpochSecond(sec), ZoneId.systemDefault())
-    else
-        LocalDateTime.now()
+    val dt = if (sec != null) serviceTimeAt(sec) else ZonedDateTime.now(SERVICE_ZONE)
     val minute = dt.minute
     val hour = dt.hour % 12
 
@@ -258,7 +254,9 @@ fun TimeTravelPanel(controller: TimeController, modifier: Modifier = Modifier) {
                 PickerCell(
                     label = "Date", value = absDate(sec), modifier = Modifier.weight(1f).fillMaxHeight(),
                     onClick = {
-                        val cal = Calendar.getInstance().apply { timeInMillis = sec * 1000 }
+                        // Picked on the service clock, to match what the pill and the board show.
+                        val cal = Calendar.getInstance(TimeZone.getTimeZone(SERVICE_ZONE.id))
+                            .apply { timeInMillis = sec * 1000 }
                         DatePickerDialog(context, { _, y, mo, d ->
                             cal.set(y, mo, d); controller.setAbsolute(cal.timeInMillis / 1000)
                         }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
@@ -267,7 +265,9 @@ fun TimeTravelPanel(controller: TimeController, modifier: Modifier = Modifier) {
                 PickerCell(
                     label = "Time", value = absClock(sec), modifier = Modifier.weight(1f).fillMaxHeight(),
                     onClick = {
-                        val cal = Calendar.getInstance().apply { timeInMillis = sec * 1000 }
+                        // Picked on the service clock, to match what the pill and the board show.
+                        val cal = Calendar.getInstance(TimeZone.getTimeZone(SERVICE_ZONE.id))
+                            .apply { timeInMillis = sec * 1000 }
                         TimePickerDialog(context, { _, h, m ->
                             cal.set(Calendar.HOUR_OF_DAY, h); cal.set(Calendar.MINUTE, m); cal.set(Calendar.SECOND, 0)
                             controller.setAbsolute(cal.timeInMillis / 1000)

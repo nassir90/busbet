@@ -36,7 +36,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.flow.first
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 private data class NearestPalette(
@@ -124,7 +123,8 @@ class NearestFavouriteWidget : GlanceAppWidget() {
             Configuration.UI_MODE_NIGHT_YES
         val pal = glanceNearestPalette(appPalette.faceFor(isDark))
 
-        val asOf = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        // Sits under the board's own times, so it reads on the same clock.
+        val asOf = serviceNow().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
         provideContent {
             WidgetUI(context, stops, pal, asOf, staleLabels)
@@ -261,10 +261,9 @@ class NearestFavouriteWidget : GlanceAppWidget() {
 
     @Composable
     private fun DepRow(d: Departure, pal: NearestPalette) {
-        val nowMins = LocalTime.now().let { it.hour * 60 + it.minute }
         val effective = d.estimatedDeparture ?: d.scheduledDeparture
         val parts = effective.split(":").map { it.toInt() }
-        val due = (parts[0] * 60 + parts[1]) - nowMins
+        val due = minutesUntil(parts[0] * 60 + parts[1], serviceNowMinutes())
         val dueLabel = when {
             due <= 0 -> "Due"
             due == 1 -> "1 min"

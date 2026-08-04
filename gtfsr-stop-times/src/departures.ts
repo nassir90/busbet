@@ -1,12 +1,9 @@
 import type { GtfsStorage, Stop, Departure } from './types.js';
 import { applyRealtimeDelays, selectFeed } from './gtfs.js';
 import { DEFAULT_LOOKBACK_S } from './snapshots.js';
+import { serviceDate, serviceDayIndex, serviceHour, previousServiceDay } from './servicetime.js';
 
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-function gtfsDate(d: Date): string {
-	return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-}
 
 export interface DeparturesResult {
 	stop: Stop;
@@ -50,16 +47,15 @@ export async function getDeparturesBatch(
 	// "now" is the queried instant (defaults to actual now), so the schedule
 	// window and active service day stay consistent for historical queries.
 	const now = atSec != null ? new Date(atSec * 1000) : new Date();
-	const today = gtfsDate(now);
-	const todayName = DAY_NAMES[now.getDay()];
+	const today = serviceDate(now);
+	const todayName = DAY_NAMES[serviceDayIndex(now)];
 	const activeServices = await storage.getActiveServiceIds(todayName, today);
 
 	// Overnight services roll over from the previous day; resolved once for the whole batch.
-	const overnightServices = now.getHours() < 4
+	const overnightServices = serviceHour(now) < 4
 		? await (async () => {
-			const yesterday = new Date(now);
-			yesterday.setDate(yesterday.getDate() - 1);
-			return storage.getActiveServiceIds(DAY_NAMES[yesterday.getDay()], gtfsDate(yesterday));
+			const yesterday = previousServiceDay(now);
+			return storage.getActiveServiceIds(DAY_NAMES[yesterday.dayIndex], yesterday.date);
 		})()
 		: null;
 

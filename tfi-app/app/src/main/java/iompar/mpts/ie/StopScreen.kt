@@ -80,7 +80,8 @@ fun StopScreen(
                     DeparturesCache.put(code, it)
                     initialError = null
                     stale = false
-                    lastFetched = LocalTime.now()
+                    // Shown next to the board's own times, so it reads on the same clock.
+                    lastFetched = serviceNow()
                 }
                 .onFailure {
                     if (it is CancellationException) throw it
@@ -348,14 +349,13 @@ private fun EmptyMessage(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun DepartureRow(
     d: Departure,
-    nowMins: Int = LocalTime.now().let { it.hour * 60 + it.minute },
+    nowMins: Int = serviceNowMinutes(),
     onOpenRoute: () -> Unit,
     onOpenService: () -> Unit = {},
     onReport: () -> Unit = {},
 ) {
     val effective = d.estimatedDeparture ?: d.scheduledDeparture
-    val effectiveMins = toMinutes(effective)
-    val due = (effectiveMins - nowMins).let { if (it < -720) it + 1440 else it }
+    val due = minutesUntil(toMinutes(effective), nowMins)
 
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -403,8 +403,7 @@ private fun toMinutes(hhmm: String): Int {
 /** Minutes until the vehicle's trip is due at this stop, or null if no matching departure was found. */
 private fun dueMinutesFor(vehicle: VehiclePosition, departures: List<Departure>?, nowMins: Int): Int? {
     val match = departures?.firstOrNull { it.tripId == vehicle.tripId } ?: return null
-    val effectiveMins = toMinutes(match.estimatedDeparture ?: match.scheduledDeparture)
-    return (effectiveMins - nowMins).let { if (it < -720) it + 1440 else it }
+    return minutesUntil(toMinutes(match.estimatedDeparture ?: match.scheduledDeparture), nowMins)
 }
 
 private fun dueLabel(diff: Int): String = when {

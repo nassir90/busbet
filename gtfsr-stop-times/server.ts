@@ -5,6 +5,7 @@ import { getDepartures, getDeparturesBatch } from './src/departures.js';
 import { fetchFeed, selectFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
 import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
 import { parseTimeParam, parseDuration, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
+import { serviceMinutes, minutesUntil, SERVICE_TZ } from './src/servicetime.js';
 
 const MAX_RANGE_STEPS = 1000;
 
@@ -95,12 +96,14 @@ async function vehiclesAt(stopCode: string, atSec: number | undefined, windowMin
 	const deps = await getDepartures(stopCode, storage, FEEDS_DIR, atSec, lookbackSec);
 	if (!deps) return null;
 	const ref = atSec != null ? new Date(atSec * 1000) : new Date();
-	const nowMins = ref.getHours() * 60 + ref.getMinutes();
+	// Departure strings are agency-local, so "now" has to be read off the same clock — otherwise
+	// the whole window shifts by the process's offset from Dublin and the map comes back empty.
+	const nowMins = serviceMinutes(ref);
 	const tripMap = new Map(
 		deps.departures
 			.filter((d) => {
 				const [h, m] = (d.estimated_departure ?? d.scheduled_departure).split(':').map(Number);
-				return (h * 60 + m) - nowMins <= windowMins;
+				return minutesUntil(h * 60 + m, nowMins) <= windowMins;
 			})
 			.map((d) => [d.trip_id, { route: d.route_short_name, delay: d.delay_seconds }])
 	);
@@ -321,4 +324,6 @@ server.listen(PORT, '127.0.0.1', () => {
 	console.log(`gtfsr-stop-times listening on port ${PORT}`);
 	console.log(`  DB:    ${DB_PATH}`);
 	console.log(`  Feeds: ${FEEDS_DIR}`);
+	// Every clock time in a response is wall-clock on this zone, whatever TZ the process runs in.
+	console.log(`  TZ:    ${SERVICE_TZ}`);
 });
