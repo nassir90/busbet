@@ -35,6 +35,12 @@ class TfiApp : Application() {
                 // Errors only for now — no performance tracing (keeps quota + overhead down).
                 options.tracesSampleRate = 0.0
 
+                // Belt and braces on top of the debug-only gate above: never attach the IP
+                // address or device identifiers Sentry would send by default. This is false by
+                // default; stated explicitly so a future SDK upgrade flipping the default can't
+                // quietly contradict the privacy policy (TFI-54).
+                options.isSendDefaultPii = false
+
                 // Drop expected "user is offline" connectivity noise; keep everything else.
                 options.beforeSend = io.sentry.SentryOptions.BeforeSendCallback { event, _ ->
                     when (event.throwable) {
@@ -44,6 +50,10 @@ class TfiApp : Application() {
                 }
                 options.setDiagnosticLevel(SentryLevel.WARNING)
             }
+            // Starts the breadcrumb trail at a known point. Inside the gate purely for locality
+            // with the init above — it is a no-op in release either way, since Sentry is never
+            // initialised there.
+            Telemetry.trackAppOpen()
         }
     }
 }

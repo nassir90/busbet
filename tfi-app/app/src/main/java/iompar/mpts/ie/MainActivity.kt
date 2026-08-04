@@ -103,6 +103,23 @@ sealed class Screen {
     ) : Screen()
 }
 
+/**
+ * Stable, argument-free name for telemetry (TFI-54). Every case is spelled out rather than derived
+ * from the class's simple name so a rename can't silently change a screen's identity — and, more
+ * importantly, so it stays obvious at review time that the stop codes, route numbers and trip ids
+ * these screens carry are never part of what gets reported.
+ */
+val Screen.screenName: String
+    get() = when (this) {
+        is Screen.Home -> "Home"
+        is Screen.Settings -> "Settings"
+        is Screen.Privacy -> "Privacy"
+        is Screen.StopBoard -> "StopBoard"
+        is Screen.RouteView -> "RouteView"
+        is Screen.TripView -> "TripView"
+        is Screen.Report -> "Report"
+    }
+
 @Composable
 fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>) {
     val context = LocalContext.current
@@ -151,6 +168,15 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
         stack.add(Screen.StopBoard(req.stopCode))
         if (pagerState.currentPage != 0) pagerState.scrollToPage(0)
     }
+
+    // What the user is actually looking at: the notifications page wins because the pager draws
+    // over the whole stack, otherwise it's the topmost pushed screen — Home when nothing is
+    // pushed, since Home is the base of the pager's first page. Derived from the nav state rather
+    // than reported from each onOpenX callback so that back presses, and the widget's
+    // stack.clear(), are covered without a call at every site (TFI-54).
+    val currentScreen = if (pagerState.currentPage == 1) "Notifications"
+        else stack.lastOrNull()?.screenName ?: "Home"
+    LaunchedEffect(currentScreen) { Telemetry.trackScreen(currentScreen) }
 
     BackHandler(enabled = stack.isNotEmpty()) { pop() }
     BackHandler(enabled = stack.isEmpty() && pagerState.currentPage == 1) {
