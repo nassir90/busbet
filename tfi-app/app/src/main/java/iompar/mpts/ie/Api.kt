@@ -189,7 +189,9 @@ data class ArrivalReport(
     @SerializedName("stop_code") val stopCode: String,
     @SerializedName("route_short_name") val routeShortName: String,
     @SerializedName("service_date") val serviceDate: String,   // "YYYYMMDD" local
-    val kind: String,                                          // "arrived" | "cancelled"
+    // "boarded" (the user actually got on) | "arrived" (the bus turned up) | "cancelled".
+    // Server-side `kind` is an open TEXT domain, so adding a kind needs no schema migration.
+    val kind: String,
     @SerializedName("actual_time") val actualTime: String?,    // "HH:MM" local, null when cancelled
     @SerializedName("reported_at") val reportedAt: Long,       // epoch seconds
 )
