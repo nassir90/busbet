@@ -887,18 +887,11 @@ private fun BackendSection(store: BackendConfigStore) {
         }
     }
 
-    // Cleartext warning. The policy is a build-time resource (res/xml/network_security_config.xml)
-    // and can't be toggled at runtime, so it differs by variant: debug still permits http backends
-    // because LAN and tailnet deployments need them, while release refuses them outright. The
-    // wording has to follow, or a release user gets told an http backend is "fine on a tailnet"
-    // and then watches every request fail with no explanation.
+    // Cleartext warning. usesCleartextTraffic is a manifest flag and can't be toggled at runtime,
+    // so http backends stay permitted (LAN and tailnet deployments need them) and we flag the risk
+    // instead of silently allowing it.
     val cleartext = config.cleartextServices()
     if (cleartext.isNotEmpty()) {
-        val consequence = if (BuildConfig.DEBUG) {
-            "Traffic can be read and modified in transit. Fine on a tailnet or LAN; use https over the internet."
-        } else {
-            "This build blocks unencrypted connections, so these requests will fail. Use an https address."
-        }
         Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.Top) {
             Icon(
@@ -909,7 +902,8 @@ private fun BackendSection(store: BackendConfigStore) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "Unencrypted (http) — ${cleartext.joinToString { it.label }}. $consequence",
+                "Unencrypted (http) — ${cleartext.joinToString { it.label }}. " +
+                    "Traffic can be read and modified in transit. Fine on a tailnet or LAN; use https over the internet.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
