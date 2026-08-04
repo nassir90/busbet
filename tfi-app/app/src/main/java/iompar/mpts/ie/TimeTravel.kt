@@ -52,6 +52,18 @@ import kotlinx.coroutines.launch
  */
 val PILL_HEIGHT = 34.dp
 
+/**
+ * Floor for the [TimeTravelPanel] content row, so the band under the app bar keeps the same
+ * height in both modes. Left to itself the row sizes to its tallest child, and that child
+ * differs per mode: relative mode has the 78dp [Cylinder] drums, absolute mode only has the
+ * (shorter) date/time cells, so toggling Relative/Absolute nudged the whole band — and
+ * everything below it — by a couple of dp. A floor above both intrinsic heights pins the two
+ * modes together. It also survives font scaling: the always-present "now" + mode column is
+ * the sp-heaviest child, so past the scale where it overtakes this floor it drives the height
+ * in both modes anyway.
+ */
+private val PANEL_ROW_MIN_HEIGHT = 98.dp
+
 enum class TimeMode { RELATIVE, ABSOLUTE }
 
 /**
@@ -217,7 +229,9 @@ fun TimeTravelPanel(controller: TimeController, modifier: Modifier = Modifier) {
             Modifier
                 .fillMaxWidth()
                 .height(IntrinsicSize.Min)
-                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp)
+                // Inside the padding, so the floor describes the controls themselves.
+                .heightIn(min = PANEL_ROW_MIN_HEIGHT),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
