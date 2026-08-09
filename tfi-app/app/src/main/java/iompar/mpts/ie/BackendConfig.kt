@@ -26,8 +26,14 @@ import java.net.URI
  */
 val REPORTS_ENABLED: Boolean get() = BuildConfig.DEBUG
 
-/** Default root. Served over the Cloudflare tunnel, hence https. */
-const val DEFAULT_BACKEND_ROOT = "https://pet.uzoukwu.net"
+/**
+ * Default root. Served over the Cloudflare tunnel, hence https.
+ *
+ * pet.uzoukwu.net still serves the same Caddy through the same tunnel and is kept working
+ * indefinitely, so installs that saved it as a custom root keep going. New installs, and any
+ * install that never overrode it, follow this constant.
+ */
+const val DEFAULT_BACKEND_ROOT = "https://iompar.mpts.ie"
 
 /**
  * A backend the app talks to. [slug] is the path segment appended to the root in derive mode, and
