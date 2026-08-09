@@ -2,6 +2,8 @@ import http from 'node:http';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createReportsStore, type ReportInput } from './src/reports.js';
+import { deriveActual, isReportKind, kindHasTime } from './src/derive.js';
+import { LATEST_VERSION } from './src/migrations.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -23,6 +25,11 @@ function loadEnv(path: string) {
 loadEnv('.env');
 
 const PORT        = parseInt(process.env.TFI_TENANT_API_PORT ?? '8120');
+// Loopback by default, matching gtfsr-stop-times. The cloudflared tunnel is the only intended
+// ingress, and it reaches this through Caddy on the same box — so binding 0.0.0.0 doesn't buy
+// anything and puts the unauthenticated write API straight on the public internet, past
+// Cloudflare. Override only for a deployment where something off-box genuinely must reach it.
+const HOST        = process.env.TFI_TENANT_API_HOST ?? '127.0.0.1';
 const REPORTS_DB  = process.env.REPORTS_DB ?? './data/reports.db';
 // Upstream read-only GTFS API — this service is a pure consumer of it for enrichment.
 const GTFSR_BASE  = (process.env.GTFSR_BASE_URL ?? 'http://127.0.0.1:8110').replace(/\/$/, '');
@@ -67,19 +74,6 @@ async function fetchTripStop(tripId: string, stopCode: string): Promise<TripStop
 	}
 }
 
-/** Local midnight (unix seconds) for a YYYYMMDD service date. */
-function serviceDateStartSec(yyyymmdd: string): number {
-	const y = parseInt(yyyymmdd.slice(0, 4));
-	const mo = parseInt(yyyymmdd.slice(4, 6));
-	const d = parseInt(yyyymmdd.slice(6, 8));
-	return Math.floor(new Date(y, mo - 1, d).getTime() / 1000);
-}
-
-function hmToMin(t: string): number {
-	const [h, m] = t.split(':').map(Number);
-	return h * 60 + m;
-}
-
 function parseReportId(path: string): number | null {
 	const match = /^\/reports\/(\d+)\/undo$/.exec(path);
 	if (!match) return null;
@@ -93,7 +87,7 @@ function parseReportId(path: string): number | null {
  */
 async function buildReport(body: any): Promise<ReportInput | { error: string }> {
 	const kind = body?.kind;
-	if (kind !== 'arrived' && kind !== 'cancelled') return { error: 'kind must be "arrived" or "cancelled"' };
+	if (!isReportKind(kind)) return { error: 'kind must be "arrived", "boarded" or "cancelled"' };
 	const tripId = String(body?.trip_id ?? '');
 	const stopCode = String(body?.stop_code ?? '');
 	const serviceDate = String(body?.service_date ?? '');
@@ -102,19 +96,8 @@ async function buildReport(body: any): Promise<ReportInput | { error: string }> 
 	}
 
 	const stop = await fetchTripStop(tripId, stopCode);
-	const actualTime: string | null = kind === 'arrived' ? (body?.actual_time ?? null) : null;
-
-	let actualEpoch: number | null = null;
-	let delaySeconds: number | null = null;
-	if (kind === 'arrived' && actualTime && stop) {
-		let diff = hmToMin(actualTime) - hmToMin(stop.scheduled_departure);
-		const nextDay = diff < -720;          // reported just after midnight vs late-evening schedule
-		if (nextDay) diff += 1440;
-		delaySeconds = diff * 60;
-		actualEpoch = serviceDateStartSec(serviceDate) + hmToMin(actualTime) * 60 + (nextDay ? 86400 : 0);
-	} else if (kind === 'arrived' && actualTime) {
-		actualEpoch = serviceDateStartSec(serviceDate) + hmToMin(actualTime) * 60;
-	}
+	const actualTime: string | null = kindHasTime(kind) ? (body?.actual_time ?? null) : null;
+	const { actualEpoch, delaySeconds } = deriveActual(actualTime, serviceDate, stop?.scheduled_departure ?? null);
 
 	return {
 		kind,
@@ -129,6 +112,8 @@ async function buildReport(body: any): Promise<ReportInput | { error: string }> 
 		delay_seconds: delaySeconds,
 		feed_delay_seconds: stop?.delay_seconds ?? null,
 		reported_at: Number(body?.reported_at) || Math.floor(Date.now() / 1000),
+		// Provenance is server-assigned: a client cannot claim to be anything but a user.
+		source: 'user',
 	};
 }
 
@@ -142,6 +127,14 @@ const server = http.createServer(async (req, res) => {
 
 	try {
 		if (path === '/health') return respond(res, 200, { ok: true });
+
+		// Deploy check: what schema the live database is actually on. If `version` here
+		// trails `expected`, the running process is older than the code that needs it.
+		if (req.method === 'GET' && path === '/schema') {
+			await reports.ready();
+			const rows = await reports.db.execute('SELECT version, name, applied_at FROM schema_migrations ORDER BY version');
+			return respond(res, 200, { expected: LATEST_VERSION, applied: rows.rows });
+		}
 
 		if (req.method === 'POST' && path === '/report') {
 			let body: any;
@@ -160,11 +153,14 @@ const server = http.createServer(async (req, res) => {
 			return respond(res, 200, { ok: true, id: undoReportId, undone: result.undone });
 		}
 
-		// Inspection: recent reports, optionally filtered by ?date=YYYYMMDD
+		// Inspection: recent reports, optionally filtered by ?date=YYYYMMDD and ?source=
 		if (req.method === 'GET' && path === '/reports') {
 			const date = url.searchParams.get('date');
-			const includeUndone = url.searchParams.get('include_undone') === '1';
-			const rows = await reports.list(date && /^\d{8}$/.test(date) ? date : null, 200, includeUndone);
+			const rows = await reports.list({
+				serviceDate: date && /^\d{8}$/.test(date) ? date : null,
+				includeUndone: url.searchParams.get('include_undone') === '1',
+				source: url.searchParams.get('source'),
+			});
 			return respond(res, 200, rows);
 		}
 
@@ -175,8 +171,11 @@ const server = http.createServer(async (req, res) => {
 	}
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-	console.log(`tfi-tenant-api listening on port ${PORT}`);
-	console.log(`  reports db: ${REPORTS_DB}`);
+server.listen(PORT, HOST, () => {
+	console.log(`tfi-tenant-api listening on ${HOST}:${PORT}`);
+	console.log(`  reports db: ${REPORTS_DB} (schema v${LATEST_VERSION})`);
 	console.log(`  gtfsr:      ${GTFSR_BASE}`);
+	// Migrate up front so a schema problem is visible in the deploy log rather than
+	// only in whichever unlucky user's report happens to be the first write.
+	reports.ready().catch((err) => console.error('[tenant-api] migration failed:', err));
 });

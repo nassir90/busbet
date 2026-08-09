@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Launches the icon tool from anywhere, without needing to cd into scripts/ first.
+#
+# uv resolves the venv and dependencies itself, so there is nothing to install beforehand; the
+# only requirement is uv on PATH. PyGObject needs the system GTK4/libadwaita libraries, which uv
+# cannot supply -- if the import fails, that is what is missing.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "icon-tool: uv is not on PATH (see https://docs.astral.sh/uv/)" >&2
+    exit 1
+fi
+
+cd "$SCRIPT_DIR"
+exec uv run icon-tool "$@"

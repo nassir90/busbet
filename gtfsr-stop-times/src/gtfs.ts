@@ -31,7 +31,18 @@ export function fetchFeed(feedsDir?: string): transit_realtime.FeedMessage | nul
 
 type StopUpdate = { stopSequence: number; delay: number };
 
+/**
+ * Memoised per decoded feed. Building this map is a full walk over every entity in the NTA feed,
+ * and it used to run once per stop lookup — so a batch of ten favourites walked the feed ten
+ * times, and every single-stop poll from every client walked it again. `decodeFeed` LRU-caches
+ * the FeedMessage, so object identity is stable across requests and a WeakMap keyed on it hits
+ * for as long as that snapshot stays current, then collects itself when the feed rolls over.
+ */
+const tripUpdatesCache = new WeakMap<transit_realtime.FeedMessage, Map<string, StopUpdate[]>>();
+
 function buildTripUpdates(feed: transit_realtime.FeedMessage): Map<string, StopUpdate[]> {
+	const cached = tripUpdatesCache.get(feed);
+	if (cached) return cached;
 	const map = new Map<string, StopUpdate[]>();
 	for (const entity of feed.entity) {
 		const tu = entity.tripUpdate;
@@ -45,6 +56,7 @@ function buildTripUpdates(feed: transit_realtime.FeedMessage): Map<string, StopU
 			map.set(tu.trip.tripId, updates.sort((a, b) => a.stopSequence - b.stopSequence));
 		}
 	}
+	tripUpdatesCache.set(feed, map);
 	return map;
 }
 

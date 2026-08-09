@@ -10,32 +10,57 @@ def localPropsFile = rootProject.file('local.properties')
 if (localPropsFile.exists()) localPropsFile.withInputStream { localProps.load(it) }
 
 android {
-    namespace 'com.example.tfiapp'
-    compileSdk 34
+    namespace 'iompar.mpts.ie'
+    compileSdk 35
 
     defaultConfig {
-        applicationId "com.example.tfiapp"
+        applicationId "iompar.mpts.ie"
         minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        targetSdk 35
+        // Bumped once per ticket implemented, not once per release: Sentry groups events by
+        // release, so a version that only moves when someone remembers to move it puts weeks of
+        // unrelated builds into one bucket and makes "did that fix land?" unanswerable.
+        versionCode 5
+        versionName "1.4"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-        // Edit these to point at your hosts. Trailing slash required.
-        buildConfigField "String", "API_BASE_URL", "\"http://lab.uzoukwu.net/gtfsr-stop-times/\""
-        // Stateful write API (arrival/cancellation reports).
-        buildConfigField "String", "TENANT_API_BASE_URL", "\"http://lab.uzoukwu.net/tfi-tenant-api/\""
+        // Backend URLs are no longer build constants — they're runtime config, editable from
+        // Settings without a rebuild. See BackendConfig.kt (DEFAULT_BACKEND_ROOT) for the default.
 
         // Sentry DSN — set `sentry.dsn=...` in local.properties to enable crash/error
         // reporting. Empty by default, which makes the Sentry SDK a no-op.
         buildConfigField "String", "SENTRY_DSN", "\"${localProps.getProperty('sentry.dsn', '')}\""
     }
 
+    // Upload key for Play. Everything comes from local.properties (gitignored) so neither the
+    // keystore nor its passwords are ever committed. Absent config isn't an error — debug builds
+    // must keep working on a machine that has no signing material.
+    def keystorePath = localProps.getProperty('release.storeFile', '')
+    def hasReleaseSigning = !keystorePath.isEmpty() && rootProject.file(keystorePath).exists()
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(keystorePath)
+                storePassword localProps.getProperty('release.storePassword')
+                keyAlias localProps.getProperty('release.keyAlias')
+                keyPassword localProps.getProperty('release.keyPassword')
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            } else {
+                // Left unsigned deliberately rather than falling back to the debug key: a debug-signed
+                // artifact is silently unpublishable, and finding that out at upload is worse than here.
+                logger.lifecycle("No release signing config (set release.* in local.properties) — release build will be unsigned")
+            }
         }
     }
     compileOptions {
@@ -62,6 +87,9 @@ dependencies {
     implementation 'androidx.activity:activity-compose:1.9.2'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.6'
     implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6'
+    // LocalLifecycleOwner + repeatOnLifecycle from composition — used by PollEffect so the 30s
+    // poll loops stop when the app is backgrounded instead of running until the process dies.
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.6'
 
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-tooling-preview'

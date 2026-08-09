@@ -10,7 +10,7 @@ cat > "$DESKTOP_FILE" << EOF
 [Desktop Entry]
 Name=BusBet Icon Tool
 Comment=Android icon manager for tfi-app
-Exec=bash -c 'cd "$SCRIPT_DIR" && uv run icon-tool'
+Exec=$SCRIPT_DIR/icon-tool
 Icon=image-x-generic
 Terminal=false
 Type=Application

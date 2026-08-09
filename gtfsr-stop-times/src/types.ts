@@ -4,6 +4,8 @@ export interface Stop {
 	stop_name: string;
 	stop_lat?: number;
 	stop_lon?: number;
+	/** Distinct route short names that serve this stop. Populated by search; may be absent elsewhere. */
+	routes?: string[];
 }
 
 export interface StopTime {
@@ -45,6 +47,8 @@ export interface TripStop {
 	stop_id: string;
 	stop_code: string;
 	stop_name: string;
+	stop_lat: number | null;
+	stop_lon: number | null;
 	scheduled_arrival: string;     // HH:MM
 	scheduled_departure: string;   // HH:MM
 	estimated_arrival: string | null;
@@ -62,6 +66,12 @@ export interface TripDetail {
 }
 
 /** Read-only GTFS storage interface — only what's needed for stop-time lookups */
+/** A single point on a route's road geometry, ordered by `seq`. */
+export interface ShapePoint {
+	lat: number;
+	lon: number;
+}
+
 export interface GtfsStorage {
 	isSeeded(): Promise<boolean>;
 	searchStops(query: string): Promise<Stop[]>;
@@ -80,4 +90,7 @@ export interface GtfsStorage {
 	searchRoutes(query: string): Promise<RouteDirection[]>;
 	getRouteStops(routeShortName: string, directionId: number): Promise<RouteStop[]>;
 	getTripDetail(tripId: string): Promise<TripDetail | null>;
+	getShape(shapeId: string): Promise<ShapePoint[]>;
+	getTripSpans(tripIds: string[]): Promise<Map<string, { first_departure: string; last_arrival: string }>>;
+	getShapeForTrip(tripId: string): Promise<ShapePoint[]>;
 }

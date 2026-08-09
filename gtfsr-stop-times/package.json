@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts"
+    "dev": "tsx server.ts",
+    "load-gtfs": "tsx load-gtfs.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0",
