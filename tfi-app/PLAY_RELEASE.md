@@ -61,12 +61,20 @@ account you grant access to, and the credential is a JSON key file.
 4. Copy the service account's **email address**. It looks like
    `play-publisher@<project>.iam.gserviceaccount.com`.
 5. **Play Console → Users & permissions → Invite new user.** Paste that email. On the
-   **App permissions** tab, add Iompar and enable:
-   - View app information (read-only)
-   - Manage store presence
-   - Manage production/testing releases — only if `supply` should upload builds too
+   **App permissions** tab, add Iompar and tick exactly these (the labels are verbatim —
+   the UI has no "manage releases" checkbox, whatever older guides say):
+   - **View app information (read-only)** — `supply` reads current state before writing
+   - **Manage store presence** — listing text and images; the one that matters for
+     pushing metadata
+   - **Release apps to testing tracks** — uploading AABs to internal/closed/open
+   - **Manage testing tracks and edit tester lists** — managing the closed-test roster
 
-   Leave Account permissions alone unless something needs them.
+   Leave **Release to production, exclude devices, and use Play App Signing** OFF.
+   fastlane's docs suggest Admin for simplicity; don't. A leaked key that cannot reach
+   production is a bad afternoon rather than a bad week, and promoting a release is one
+   click in Console. Turn it on only if scripted production rollout is ever wanted.
+
+   Leave Account permissions alone entirely.
 6. Save the JSON outside the repo (for example `~/.config/play/iompar-publisher.json`)
    and `chmod 600` it. It is a live credential to your developer account; anyone holding
    it can publish as you.
