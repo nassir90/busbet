@@ -103,18 +103,41 @@ Everything below assumes the app already exists in Console with at least one upl
 ## 3. Push the listing
 
 ```
-gem install fastlane          # once
+gem install --user-install fastlane          # once
 cd tfi-app
 
 fastlane supply \
   --json_key ~/.config/play/iompar-publisher.json \
   --package_name iompar.mpts.ie \
-  --skip_upload_apk --skip_upload_aab \
-  --track internal
+  --skip_upload_apk true --skip_upload_aab true \
+  --track internal \
+  --version_code 5
 ```
 
 That pushes text and images only. To ship a build as well, drop the two `--skip_upload_*`
 flags and add `--aab app/build/outputs/bundle/release/app-release.aab`.
+
+**`--version_code` is required when skipping the binary upload.** Without it supply
+uploads every image, then dies at the changelog with *"Cannot find changelog because no
+version code given"* — after 30 seconds of work, and having committed nothing. It has to
+match a versionCode that already exists on the track, and a `changelogs/<n>.txt` in the
+metadata tree. `--skip_upload_changelogs true` does *not* avoid this; it still tries to
+resolve a release and fails on production being empty.
+
+### Reading failures
+
+The upload steps and the commit need different permissions, so where it fails tells you
+what is missing:
+
+| Symptom | Cause |
+|---|---|
+| `has not been used in project …` | Play Developer API not enabled in the Cloud project |
+| Uploads fine, `commit` → 403 | No **Manage store presence** on the App permissions tab |
+| Commit → 403 only when a track is touched | No **Release apps to testing tracks** |
+| Everything 403 | Service account not in Users & permissions at all |
+
+Permission changes take a couple of minutes to propagate; an immediate retry can still
+403 on a grant that is actually correct.
 
 > **Do not run `fastlane supply init`.** It *downloads* the live listing and overwrites
 > everything in `fastlane/metadata/`, discarding the copy in this repo. It is for
