@@ -50,6 +50,12 @@ account you grant access to, and the credential is a JSON key file.
 > is also account-level and owner-only, so it is invisible from inside an app and to
 > anyone who is not the account owner — which is usually why people cannot find it.
 
+> **Signed into more than one Google account?** Append `&authuser=N` to every console URL
+> below, matching the account you actually use. Without it the links silently open as
+> your first-signed-in account and the project appears not to exist. The Play account and
+> the Cloud project do not have to be the same login — the Users & permissions grant is
+> what connects them.
+
 1. **Google Cloud Console** → create or select a project → enable the **Google Play
    Developer API**. Google's current docs say a linked project is no longer required;
    third-party guides still say it is. Doing it costs nothing and works either way.
