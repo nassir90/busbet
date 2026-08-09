@@ -44,19 +44,29 @@ copy.
 This is a **service account**, not an API key. Play's API authenticates as a robot
 account you grant access to, and the credential is a JSON key file.
 
-1. **Play Console → Setup → API access.**
-2. **Link a Google Cloud project.** Create one if you have none. The project only exists
-   to own the service account; nothing is billed.
-3. In that project (**Google Cloud Console → IAM & Admin → Service Accounts**), create a
-   service account. A name like `play-publisher` is enough. It needs no project-level
-   IAM roles — its permissions come from Play Console, not GCP.
-4. On the service account, **Keys → Add key → Create new key → JSON**. The file
-   downloads once and cannot be re-downloaded. Losing it means creating a new key.
-5. Back in **Play Console → API access**, the account now appears. **Grant access**, and
-   give it app permissions. For pushing listings and releases:
-   - View app information
+> **Do not go looking for "Setup → API access".** Older guides (and the first version of
+> this file) send you there. The grant now happens under **Users & permissions**, where
+> the service account is invited like a person, by its email address. The API access page
+> is also account-level and owner-only, so it is invisible from inside an app and to
+> anyone who is not the account owner — which is usually why people cannot find it.
+
+1. **Google Cloud Console** → create or select a project → enable the **Google Play
+   Developer API**. Google's current docs say a linked project is no longer required;
+   third-party guides still say it is. Doing it costs nothing and works either way.
+2. **IAM & Admin → Service Accounts** → create one. A name like `play-publisher` is
+   enough. Assign **no GCP roles** — its permissions come from Play Console, not GCP.
+3. On the service account, **Actions → Manage keys → Add key → Create new key → JSON**.
+   The file downloads once and cannot be re-downloaded. Losing it means creating a new
+   key, not recovering this one.
+4. Copy the service account's **email address**. It looks like
+   `play-publisher@<project>.iam.gserviceaccount.com`.
+5. **Play Console → Users & permissions → Invite new user.** Paste that email. On the
+   **App permissions** tab, add Iompar and enable:
+   - View app information (read-only)
    - Manage store presence
-   - Manage production/testing releases
+   - Manage production/testing releases — only if `supply` should upload builds too
+
+   Leave Account permissions alone unless something needs them.
 6. Save the JSON outside the repo (for example `~/.config/play/iompar-publisher.json`)
    and `chmod 600` it. It is a live credential to your developer account; anyone holding
    it can publish as you.
