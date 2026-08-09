@@ -25,6 +25,11 @@ function loadEnv(path: string) {
 loadEnv('.env');
 
 const PORT        = parseInt(process.env.TFI_TENANT_API_PORT ?? '8120');
+// Loopback by default, matching gtfsr-stop-times. The cloudflared tunnel is the only intended
+// ingress, and it reaches this through Caddy on the same box — so binding 0.0.0.0 doesn't buy
+// anything and puts the unauthenticated write API straight on the public internet, past
+// Cloudflare. Override only for a deployment where something off-box genuinely must reach it.
+const HOST        = process.env.TFI_TENANT_API_HOST ?? '127.0.0.1';
 const REPORTS_DB  = process.env.REPORTS_DB ?? './data/reports.db';
 // Upstream read-only GTFS API — this service is a pure consumer of it for enrichment.
 const GTFSR_BASE  = (process.env.GTFSR_BASE_URL ?? 'http://127.0.0.1:8110').replace(/\/$/, '');
@@ -166,8 +171,8 @@ const server = http.createServer(async (req, res) => {
 	}
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-	console.log(`tfi-tenant-api listening on port ${PORT}`);
+server.listen(PORT, HOST, () => {
+	console.log(`tfi-tenant-api listening on ${HOST}:${PORT}`);
 	console.log(`  reports db: ${REPORTS_DB} (schema v${LATEST_VERSION})`);
 	console.log(`  gtfsr:      ${GTFSR_BASE}`);
 	// Migrate up front so a schema problem is visible in the deploy log rather than
