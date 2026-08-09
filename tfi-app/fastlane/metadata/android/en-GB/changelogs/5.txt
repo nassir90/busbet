@@ -1,0 +1,2 @@
+Exact alarms are now asked for rather than taken at install, so notification timing is your choice.
+The app talks to its own domain, iompar.mpts.ie.

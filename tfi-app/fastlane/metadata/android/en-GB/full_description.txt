@@ -1,0 +1,49 @@
+Iompar shows live Dublin bus departures using the National Transport Authority's realtime data.
+
+Search for a stop or a route, see what is actually coming and when, and watch buses move on the map as they approach. No account, no ads, no tracking.
+
+LIVE DEPARTURES
+
+See the next departures for any stop, with realtime predictions rather than just the timetable. When the feed reports a delay, the board reflects it.
+
+ROUTE AND TRIP VIEWS
+
+Follow a route in both directions and see every stop along it. Open a trip to watch the bus move along its real path, drawn from the official route geometry rather than a straight line between stops.
+
+MAPS
+
+Stop and trip maps show where the bus is now and where it is heading. Maps use OpenStreetMap.
+
+FAVOURITES
+
+Save the stops you use. Sort them by distance so the nearest one is first, or arrange them yourself.
+
+HOME SCREEN WIDGETS
+
+Put a stop's departures on your home screen. A second widget shows whichever of your favourites is nearest to you right now.
+
+SCHEDULED NOTIFICATIONS
+
+Set the times you actually travel and get told when your bus is due. Notifications only run inside the windows you choose, so nothing is watching in the background the rest of the day.
+
+SEARCH THAT REMEMBERS
+
+Recent searches come back when you need them, so the stops you check every day are one tap away.
+
+THEMES
+
+Light and dark, plus editable colour palettes if you want it to look like something other than the default.
+
+PRIVACY
+
+There are no accounts and no sign-in. The app asks for no name, email or phone number. It contains no advertising and no analytics or tracking SDKs.
+
+If you turn on location sorting, your location is read on your device to order stops by distance and is never transmitted anywhere. Turning the setting off stops the app reading it.
+
+Your favourites, theme, notification schedules and settings are stored on your device only, and uninstalling removes them.
+
+Full policy: https://iompar.mpts.ie/privacy-policy
+
+DATA SOURCE
+
+Timetable and realtime data come from Transport for Ireland's open GTFS and GTFS-Realtime feeds. Iompar is an independent app and is not affiliated with, endorsed by, or connected to Transport for Ireland, the National Transport Authority or Dublin Bus.
