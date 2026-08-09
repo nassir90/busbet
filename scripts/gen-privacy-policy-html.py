@@ -8,7 +8,7 @@ it. Re-run after editing PRIVACY_POLICY_BODY, then redeploy www/ to the server.
 
     python3 scripts/gen-privacy-policy-html.py
 
-Served at https://pet.uzoukwu.net/iompar/privacy-policy
+Served at https://iompar.mpts.ie/privacy-policy
 (Caddy file_server over /srv/www/iompar).
 """
 
@@ -18,7 +18,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "tfi-app/app/src/main/java/net/uzoukwu/tfiapp/PrivacyPolicy.kt"
+SRC = ROOT / "tfi-app/app/src/main/java/iompar/mpts/ie/PrivacyPolicy.kt"
 OUT = ROOT / "www/iompar/privacy-policy.html"
 
 CSS = """
