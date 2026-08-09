@@ -92,9 +92,45 @@ fun NotificationScreen(
     }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
+    // Exact alarms have no permission dialog — the only route is the system settings page, so this
+    // explains why we're sending the user there before doing it. Asked once per visit to this
+    // screen and never re-raised after a refusal within that visit: notifications still work
+    // inexactly, so nagging buys nothing.
+    var askExactAlarms by remember { mutableStateOf(false) }
+    val exactAlarmLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        // No result to read: the settings page reports nothing back. Re-run the scheduler so a
+        // grant takes effect on the already-queued alarms instead of at the next reschedule.
+        NotificationScheduler.reschedule(context)
+    }
+
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) permLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        askExactAlarms = !canScheduleExactAlarms(context)
         NotificationScheduler.reschedule(context)
+    }
+
+    if (askExactAlarms) {
+        AlertDialog(
+            onDismissRequest = { askExactAlarms = false },
+            title = { Text("Allow exact alarms?") },
+            text = {
+                Text(
+                    "Without this, Android batches alarms and a notification can arrive a few " +
+                    "minutes late, which is usually after the bus. Notifications still work " +
+                    "without it, just less precisely."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    askExactAlarms = false
+                    exactAlarmLauncher.launch(exactAlarmSettingsIntent(context))
+                }) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { askExactAlarms = false }) { Text("Not now") }
+            },
+        )
     }
 
     Scaffold(

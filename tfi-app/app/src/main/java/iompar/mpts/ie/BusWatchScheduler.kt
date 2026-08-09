@@ -39,10 +39,10 @@ object BusWatchScheduler {
     private fun setAlarm(context: Context, watch: BusWatch) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pi = alarmIntent(context, watch.tripId, watch.stopCode)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, watch.triggerAtMillis, pi)
-        } else {
+        if (canScheduleExactAlarms(context)) {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, watch.triggerAtMillis, pi)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, watch.triggerAtMillis, pi)
         }
     }
 

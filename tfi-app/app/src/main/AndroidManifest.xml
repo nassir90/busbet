@@ -9,8 +9,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+      SCHEDULE_EXACT_ALARM only, deliberately not USE_EXACT_ALARM. USE_EXACT_ALARM is granted at
+      install with no user say, and Play gates it behind a policy declaration for alarm/calendar
+      apps. SCHEDULE_EXACT_ALARM is the user-grantable equivalent: the schedulers ask for it when
+      the user first opens Notifications, and fall back to inexact alarms if it is refused.
+    -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:name=".TfiApp"
