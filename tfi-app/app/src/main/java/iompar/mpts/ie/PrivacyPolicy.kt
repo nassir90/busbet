@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
  * Google Play requires the privacy policy to be reachable both from the Play listing and from
  * inside the app. This is the in-app copy; keep it in step with the hosted version.
  */
-const val PRIVACY_POLICY_LAST_UPDATED = "23 July 2026"
+const val PRIVACY_POLICY_LAST_UPDATED = "15 August 2026"
 
 /**
  * Written against what the app actually does, verified in the source rather than assumed. If any
@@ -54,6 +54,9 @@ val PRIVACY_POLICY_BODY = listOf(
     "The app talks to the backend servers, which supply timetable and live departure data. They are hosted in Germany and reached over an encrypted connection through Cloudflare, which acts as a network provider for the connection.",
     "The backend servers do not log the IP addresses of requests.",
     "Advanced users can point the app at a different backend server in Settings. If you do that, the data described above goes to whoever operates that server, and this policy no longer governs it.",
+
+    "MAPS",
+    "Map imagery is served by CartoDB, drawn from OpenStreetMap data. When you open a map, your device requests the map squares it needs directly from CartoDB's servers. Those requests carry your IP address, so CartoDB can see what part of the map you are viewing. The app cannot show maps without it.",
 
     "ON-DEVICE SERVER",
     "The app can optionally run a server on your device so that tools on your own network can read and change its data. It is off by default. When enabled it has no authentication, so anyone who can reach your device on the chosen network can use it. Only enable it on networks you trust.",
