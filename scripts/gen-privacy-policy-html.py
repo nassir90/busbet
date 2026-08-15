@@ -11,6 +11,9 @@ then redeploy www/ to the server.
 
 Served at https://iompar.mpts.ie/privacy-policy
 (Caddy file_server over /srv/www/iompar).
+
+The markdown carries no HTML of its own, comments included — everything in it is published. The
+notes on keeping it truthful live in tfi-app/PLAY_RELEASE.md, under "Privacy policy".
 """
 
 import html
@@ -27,6 +30,7 @@ CSS = """
   h1{font-size:1.5rem;margin-bottom:.25rem}
   h2{font-size:1rem;text-transform:uppercase;letter-spacing:.04em;margin-top:2rem;color:#444}
   .updated{color:#666;font-size:.875rem;margin-top:0}
+  ul{padding-left:1.25rem}li{margin:.25rem 0}
   @media(prefers-color-scheme:dark){body{background:#111;color:#e8e8e8}h2{color:#aaa}.updated{color:#999}}
 """.strip()
 
@@ -36,10 +40,6 @@ def main() -> int:
         print(f"error: {SRC} not found", file=sys.stderr)
         return 1
     src = SRC.read_text()
-
-    # Drop the HTML comment block holding the maintenance notes — it is for whoever edits the
-    # markdown, not for readers of the published page.
-    src = re.sub(r"<!--.*?-->", "", src, flags=re.S)
 
     updated_match = re.search(r"^Updated:\s*(.+)$", src, re.M)
     if updated_match is None:
@@ -54,6 +54,15 @@ def main() -> int:
             continue
         if block.startswith("## "):
             rendered.append(f"<h2>{html.escape(block[3:].strip())}</h2>")
+        elif block.startswith("- "):
+            # Simplified Technical English prefers a list to a long sentence, so the source uses
+            # them; a run of "- " lines is one <ul>.
+            items = "".join(
+                f"<li>{html.escape(line[2:].strip())}</li>"
+                for line in block.splitlines()
+                if line.strip().startswith("- ")
+            )
+            rendered.append(f"<ul>{items}</ul>")
         else:
             # Paragraphs are single logical lines; unwrap any that got hard-wrapped.
             rendered.append(f"<p>{html.escape(' '.join(block.split()))}</p>")

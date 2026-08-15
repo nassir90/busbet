@@ -1,67 +1,72 @@
-<!--
-Source of truth for the Iompar privacy policy.
-
-The app no longer carries a copy of this text; it links to the hosted page instead, so this file
-is the only place the wording lives. Edit here, then regenerate and redeploy:
-
-    python3 scripts/gen-privacy-policy-html.py
-    scp www/iompar/privacy-policy.html hetzner:/tmp/pp.html
-    ssh hetzner 'cp /tmp/pp.html /srv/www/iompar/privacy-policy.html'
-
-Served at https://iompar.mpts.ie/privacy-policy
-
-Written against what the app actually does, verified in the source rather than assumed. If any of
-the following changes, this text and the Play Data safety declaration both need updating:
-  - location leaving the device (today it never does)
-  - anything identifying being attached to a report
-  - crash reporting being enabled in release builds
-  - the map tile provider
--->
-
 Updated: 15 August 2026
 
-Iompar shows live Dublin bus departures using open transport data. This policy describes what the app does with your information.
+Iompar shows live bus departure times in Dublin. It uses open transport data. This policy tells you what the app does with your data.
 
-## What this app does not do
+This policy uses Simplified Technical English.
 
-The app has no accounts and no sign-in. It does not ask for your name, email or phone number. It contains no advertising and no analytics or tracking SDKs.
+## What the app does not do
+
+The app has no accounts. You do not sign in.
+
+The app does not ask for your name, your email address, or your telephone number.
+
+The app has no advertisements. The app has no analytics software and no tracking software.
 
 ## Location
 
-If you enable location sorting, the app reads your device location to order nearby stops by distance and to show the closest favourite in the home screen widget.
+You can turn on location sorting. Then the app reads the location of your device. The app uses the location for two functions:
 
-Your location is used entirely on your device. It is never transmitted anywhere. Turning off location sorting in Settings stops the app reading it.
+- It shows the nearest stops first.
+- It shows the nearest favourite stop in the home screen widget.
 
-The home screen widget reads your location while the app is not open, so that it can show the nearest stop without you launching the app. This only happens if location sorting is enabled.
+The app uses the location only on your device. The app does not send your location to a server.
 
-## Information stored on your device
+If you turn off location sorting, the app does not read your location.
 
-Your favourite stops, theme, notification schedules, recent searches and settings are stored on your device only. Uninstalling the app removes them.
+The home screen widget reads your location when the app is closed. Then the widget can show the nearest stop before you open the app. This occurs only when location sorting is on.
+
+## Data on your device
+
+The app keeps this data only on your device:
+
+- your favourite stops
+- the theme
+- the notification schedules
+- the recent searches
+- the settings
+
+If you remove the app, the device deletes this data.
 
 ## Servers and network
 
-The app talks to the backend servers, which supply timetable and live departure data. They are hosted in Germany and reached over an encrypted connection through Cloudflare, which acts as a network provider for the connection.
+The app gets timetable data and live departure data from the backend servers. The servers are in Germany. The connection to the servers is encrypted. Cloudflare supplies the network connection.
 
-The backend servers do not log the IP addresses of requests.
+The servers do not keep a record of the IP address of a request.
 
-Advanced users can point the app at a different backend server in Settings. If you do that, the data described above goes to whoever operates that server, and this policy no longer governs it.
+In Settings, you can select a different backend server. Then the app sends the data to the operator of that server. This policy does not apply to that server.
 
 ## Maps
 
-Map imagery is served by CartoDB, drawn from OpenStreetMap data. When you open a map, your device requests the map squares it needs directly from CartoDB's servers. Those requests carry your IP address, so CartoDB can see what part of the map you are viewing. The app cannot show maps without it.
+CartoDB supplies the map images. The images use OpenStreetMap data.
 
-## On-device server
+When you open a map, your device gets the necessary map squares from the CartoDB servers. These requests contain your IP address. CartoDB can see which part of the map you look at. The app cannot show maps without CartoDB.
 
-The app can optionally run a server on your device so that tools on your own network can read and change its data. It is off by default. When enabled it has no authentication, so anyone who can reach your device on the chosen network can use it. Only enable it on networks you trust.
+## Server on your device
+
+The app can operate a server on your device. Tools on your network can then read and change the data of the app.
+
+This server is off when you install the app.
+
+The server has no authentication. Each person who can connect to your device on that network can use the server. Turn on this server only on a network that you trust.
 
 ## Children
 
-The app is not directed at children and does not knowingly collect information from them.
+The app is not for children. The app does not collect data from children.
 
-## Changes
+## Changes to this policy
 
-If this policy changes, the updated version will appear on this page and in the app listing.
+A change to this policy appears on this page. The change also appears in the app listing.
 
 ## Contact
 
-Questions about this policy: uzoukwuc@tcd.ie
+Send questions about this policy to uzoukwuc@tcd.ie.
