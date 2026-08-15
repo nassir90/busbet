@@ -2,8 +2,6 @@ Updated: 15 August 2026
 
 Iompar shows live bus departure times in Dublin. It uses open transport data. This policy tells you what the app does with your data.
 
-This policy uses Simplified Technical English.
-
 ## What the app does not do
 
 The app has no accounts. You do not sign in.
