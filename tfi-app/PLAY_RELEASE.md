@@ -92,8 +92,12 @@ inside it and rely on remembering.
 
 Console-only, no API, no automation:
 
-- **Creating the app** and **uploading its first release** — the API cannot bootstrap a
-  new app.
+- **Creating the app**, and **rolling out its first release**. `supply` can upload a
+  bundle to a track on a never-published app, but only as a draft. Asking for
+  `--release_status completed` fails with *"Only releases with status draft may be
+  created on draft app."* The first rollout is a Console button, and Console will not
+  offer it until every item on **Finish setting up your app** is complete — so the
+  declarations below gate the first release rather than running alongside it.
 - **Content rating** questionnaire.
 - **Data safety** form.
 - App category, contact details, and the tester opt-in link.
@@ -193,8 +197,9 @@ opted in, continuously, for 14 days** before applying for production.
 Play requires a publicly reachable policy URL, and the app links to the same text
 internally.
 
-`PrivacyPolicy.kt` is the single source. Regenerate and redeploy the hosted copy after
-editing it:
+`PRIVACY_POLICY.md` is the single source; the app links to the hosted page rather than
+carrying a copy, so this is the only place the wording lives. Regenerate and redeploy
+after editing it:
 
 ```
 python3 scripts/gen-privacy-policy-html.py     # writes www/iompar/privacy-policy.html
