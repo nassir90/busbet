@@ -25,15 +25,6 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "tfi-app/PRIVACY_POLICY.md"
 OUT = ROOT / "www/iompar/privacy-policy.html"
 
-CSS = """
-  body{font:16px/1.6 system-ui,-apple-system,sans-serif;max-width:42rem;margin:2rem auto;padding:0 1rem;color:#1a1a1a}
-  h1{font-size:1.5rem;margin-bottom:.25rem}
-  h2{font-size:1rem;text-transform:uppercase;letter-spacing:.04em;margin-top:2rem;color:#444}
-  .updated{color:#666;font-size:.875rem;margin-top:0}
-  ul{padding-left:1.25rem}li{margin:.25rem 0}
-  @media(prefers-color-scheme:dark){body{background:#111;color:#e8e8e8}h2{color:#aaa}.updated{color:#999}}
-""".strip()
-
 
 def main() -> int:
     if not SRC.exists():
@@ -77,9 +68,8 @@ def main() -> int:
         '<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
         "<title>Privacy policy — Iompar</title>\n"
-        f"<style>\n{CSS}\n</style>\n"
         "</head><body>\n<h1>Privacy policy</h1>\n"
-        f'<p class="updated">Iompar · last updated {html.escape(updated)}</p>\n'
+        f"<p>Iompar · last updated {html.escape(updated)}</p>\n"
         + "\n".join(rendered)
         + "\n</body></html>\n"
     )
