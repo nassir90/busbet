@@ -285,7 +285,6 @@ fun describeScreen(screen: Screen?, onNotificationsPage: Boolean): String = when
     onNotificationsPage -> "Notifications — notification windows"
     screen == null || screen is Screen.Home -> "Home — search, favourites and nearby stops"
     screen is Screen.Settings -> "Settings"
-    screen is Screen.Privacy -> "Privacy policy"
     screen is Screen.StopBoard -> "Stop board — ${screen.code}"
     screen is Screen.RouteView -> "Route ${screen.route} (direction ${screen.direction})"
     screen is Screen.TripView -> "Trip ${screen.tripId}"

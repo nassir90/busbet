@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Generates the hosted privacy policy page from the app's copy of the text.
+Generates the hosted privacy policy page from tfi-app/PRIVACY_POLICY.md.
 
-Google Play needs the policy at a public URL as well as inside the app. Keeping two hand-written
-copies guarantees they drift, so the Kotlin is the single source and this renders the HTML from
-it. Re-run after editing PRIVACY_POLICY_BODY, then redeploy www/ to the server.
+The app used to carry the policy text as a Kotlin constant and this script parsed it back out.
+That inverted once the app dropped its in-app copy and started linking to the hosted page: the
+markdown is now the only place the wording lives, and this renders it. Re-run after editing it,
+then redeploy www/ to the server.
 
     python3 scripts/gen-privacy-policy-html.py
 
@@ -18,7 +19,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "tfi-app/app/src/main/java/iompar/mpts/ie/PrivacyPolicy.kt"
+SRC = ROOT / "tfi-app/PRIVACY_POLICY.md"
 OUT = ROOT / "www/iompar/privacy-policy.html"
 
 CSS = """
@@ -31,34 +32,35 @@ CSS = """
 
 
 def main() -> int:
+    if not SRC.exists():
+        print(f"error: {SRC} not found", file=sys.stderr)
+        return 1
     src = SRC.read_text()
 
-    try:
-        body = src.split("val PRIVACY_POLICY_BODY = listOf(")[1].split(").joinToString")[0]
-    except IndexError:
-        print(f"error: could not find PRIVACY_POLICY_BODY in {SRC}", file=sys.stderr)
-        return 1
+    # Drop the HTML comment block holding the maintenance notes — it is for whoever edits the
+    # markdown, not for readers of the published page.
+    src = re.sub(r"<!--.*?-->", "", src, flags=re.S)
 
-    paragraphs = [
-        p.replace('\\"', '"')
-        for p in re.findall(r'^\s*"((?:[^"\\]|\\.)*)",\s*$', body, re.M)
-    ]
-    if not paragraphs:
-        print("error: no paragraphs parsed — has the Kotlin format changed?", file=sys.stderr)
-        return 1
-
-    updated_match = re.search(r'PRIVACY_POLICY_LAST_UPDATED = "([^"]+)"', src)
+    updated_match = re.search(r"^Updated:\s*(.+)$", src, re.M)
     if updated_match is None:
-        print("error: PRIVACY_POLICY_LAST_UPDATED not found", file=sys.stderr)
+        print("error: no 'Updated: <date>' line found", file=sys.stderr)
         return 1
-    updated = updated_match.group(1)
+    updated = updated_match.group(1).strip()
+    src = src.replace(updated_match.group(0), "", 1)
 
-    # Short all-caps paragraphs are the section headings.
-    rendered = [
-        f"<h2>{html.escape(p.title())}</h2>" if p.isupper() and len(p) < 60
-        else f"<p>{html.escape(p)}</p>"
-        for p in paragraphs
-    ]
+    rendered = []
+    for block in (b.strip() for b in src.split("\n\n")):
+        if not block:
+            continue
+        if block.startswith("## "):
+            rendered.append(f"<h2>{html.escape(block[3:].strip())}</h2>")
+        else:
+            # Paragraphs are single logical lines; unwrap any that got hard-wrapped.
+            rendered.append(f"<p>{html.escape(' '.join(block.split()))}</p>")
+
+    if not rendered:
+        print("error: no content parsed", file=sys.stderr)
+        return 1
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(
@@ -72,7 +74,7 @@ def main() -> int:
         + "\n".join(rendered)
         + "\n</body></html>\n"
     )
-    print(f"{OUT.relative_to(ROOT)}: {len(paragraphs)} paragraphs, last updated {updated}")
+    print(f"{OUT.relative_to(ROOT)}: {len(rendered)} blocks, last updated {updated}")
     return 0
 
 

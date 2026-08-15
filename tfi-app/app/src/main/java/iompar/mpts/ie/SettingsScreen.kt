@@ -52,7 +52,6 @@ fun SettingsScreen(
     settingsStore: SettingsStore,
     serverSettingsStore: ServerSettingsStore,
     backendConfigStore: BackendConfigStore,
-    onOpenPrivacy: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -463,9 +462,13 @@ fun SettingsScreen(
 
             // ── About ────────────────────────────────────────────────────────
             // Play requires the privacy policy to be reachable from inside the app, not only
-            // from the store listing.
+            // from the store listing. This opens the hosted page rather than a bundled copy, so
+            // what the user reads is the current policy and not the one their build shipped with.
             SectionHeader("About")
-            TextButton(onClick = onOpenPrivacy, modifier = Modifier.padding(vertical = 4.dp)) {
+            TextButton(
+                onClick = { openPrivacyPolicy(context) },
+                modifier = Modifier.padding(vertical = 4.dp),
+            ) {
                 Text("Privacy policy")
             }
 

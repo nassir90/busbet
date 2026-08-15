@@ -91,7 +91,6 @@ class MainActivity : ComponentActivity() {
 sealed class Screen {
     data object Home : Screen()
     data object Settings : Screen()
-    data object Privacy : Screen()
     data class StopBoard(val code: String) : Screen()
     data class RouteView(val route: String, val direction: Int) : Screen()
     data class TripView(val tripId: String, val fromStopCode: String? = null) : Screen()
@@ -117,7 +116,6 @@ val Screen.screenName: String
     get() = when (this) {
         is Screen.Home -> "Home"
         is Screen.Settings -> "Settings"
-        is Screen.Privacy -> "Privacy"
         is Screen.StopBoard -> "StopBoard"
         is Screen.RouteView -> "RouteView"
         is Screen.TripView -> "TripView"
@@ -281,10 +279,8 @@ fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>
                     settingsStore = settingsStore,
                     serverSettingsStore = serverSettingsStore,
                     backendConfigStore = backendConfigStore,
-                    onOpenPrivacy = { stack.add(Screen.Privacy) },
                     onBack = { pop() },
                 )
-                is Screen.Privacy -> PrivacyPolicyScreen(onBack = { pop() })
                 is Screen.StopBoard -> StopScreen(
                     code = top.code,
                     timeController = timeController,
