@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
-import org.osmdroid.config.Configuration
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -43,17 +42,12 @@ fun TripMap(
     val onPinArgb = MaterialTheme.colorScheme.onPrimary.toArgb()
     val tiles = if (isDark) CARTO_DARK else CARTO_LIGHT
 
+    // See StopMap: remembered so returning to the app does not rebuild the map from a cold
+    // tile cache (TFI-115).
+    val mapView = rememberMapView { setTileSource(tiles) }
+
     AndroidView(
-        factory = { context ->
-            Configuration.getInstance().userAgentValue = context.packageName
-            MapView(context).apply {
-                setTileSource(tiles)
-                setMultiTouchControls(true)
-                zoomController.setVisibility(
-                    org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER
-                )
-            }
-        },
+        factory = { mapView },
         update = { map ->
             if (map.tileProvider.tileSource !== tiles) map.setTileSource(tiles)
             if (shape.size < 2) return@AndroidView
@@ -140,8 +134,7 @@ fun TripMap(
 
             map.invalidate()
         },
-        // See StopMap: osmdroid needs onDetach() to release its tile cache and downloader threads.
-        onRelease = { it.onDetach() },
+        // No onRelease: rememberMapView owns detachment, along with onResume/onPause.
         modifier = modifier
             .clipToBounds()
             .graphicsLayer { }

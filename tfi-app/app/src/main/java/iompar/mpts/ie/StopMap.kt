@@ -14,8 +14,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -37,6 +37,7 @@ fun StopMap(
     nowMins: Int,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val isDark  = isSystemInDarkTheme()
     val primary = MaterialTheme.colorScheme.primary
     val tint    = primary.copy(alpha = 0.14f)
@@ -52,30 +53,27 @@ fun StopMap(
     }
     val tiles   = if (isDark) CARTO_DARK else CARTO_LIGHT
 
-    AndroidView(
-        factory = { context ->
-            Configuration.getInstance().userAgentValue = context.packageName
-            MapView(context).apply {
-                setTileSource(tiles)
-                setMultiTouchControls(true)
-                zoomController.setVisibility(
-                    org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER
-                )
-                controller.setZoom(15.0)
-                controller.setCenter(GeoPoint(lat, lon))
+    // Remembered rather than built in the factory, so backgrounding the app and returning does not
+    // hand back a cold MapView with an empty tile cache (TFI-115).
+    val mapView = rememberMapView {
+        setTileSource(tiles)
+        controller.setZoom(15.0)
+        controller.setCenter(GeoPoint(lat, lon))
 
-                // Stop marker
-                val density = context.resources.displayMetrics.density
-                overlays.add(Marker(this).apply {
-                    position  = GeoPoint(lat, lon)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    icon      = StopSquareDrawable(pinArgb, onPinArgb, density, stopCode)
-                    title     = null
-                    infoWindow = null
-                    id = STOP_MARKER_TAG
-                })
-            }
-        },
+        // Stop marker
+        val density = context.resources.displayMetrics.density
+        overlays.add(Marker(this).apply {
+            position  = GeoPoint(lat, lon)
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            icon      = StopSquareDrawable(pinArgb, onPinArgb, density, stopCode)
+            title     = null
+            infoWindow = null
+            id = STOP_MARKER_TAG
+        })
+    }
+
+    AndroidView(
+        factory = { mapView },
         update = { map ->
             val density = map.context.resources.displayMetrics.density
 
@@ -170,10 +168,7 @@ fun StopMap(
 
             map.invalidate()
         },
-        // osmdroid holds a tile cache and downloader threads per MapView and expects onDetach() to
-        // release them. Nothing here ever called it, and every stop or trip screen opened built a
-        // fresh MapView, so the cost accumulated for the life of the process.
-        onRelease = { it.onDetach() },
+        // No onRelease: rememberMapView owns detachment, along with onResume/onPause.
         modifier = modifier
             .clipToBounds()
             .graphicsLayer { }

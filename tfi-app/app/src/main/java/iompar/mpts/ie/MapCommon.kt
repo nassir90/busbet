@@ -1,11 +1,22 @@
 package iompar.mpts.ie
 
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.views.CustomZoomButtonsController
+import java.io.File
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -34,6 +45,73 @@ private fun cartoTiles(style: String) = XYTileSource(
 
 val CARTO_DARK: XYTileSource = cartoTiles("dark_all")
 val CARTO_LIGHT: XYTileSource = cartoTiles("light_all")
+
+/**
+ * osmdroid was being given none of the three things it asks for: a tile cache it can find on disk,
+ * onResume/onPause in step with the host lifecycle, and a MapView that survives recomposition.
+ *
+ * Without the cache configuration it falls back to a location it may not be able to write, so every
+ * return to the app repaints from an empty cache; without the lifecycle calls its tile downloader
+ * is never told to stand down and come back. Either way the map arrives blank and fills in — the
+ * flicker when navigating to and from the app (TFI-115).
+ *
+ * Call [rememberMapView] instead of constructing MapView inside AndroidView's factory, and drop
+ * the onRelease hook: disposal is handled here.
+ */
+private var osmdroidConfigured = false
+
+private fun configureOsmdroid(context: Context) {
+    if (osmdroidConfigured) return
+    val ctx = context.applicationContext
+    Configuration.getInstance().apply {
+        // Any SharedPreferences will do; osmdroid only uses it to persist its own settings. Using
+        // a named file rather than the default keeps it out of the app's own preferences.
+        load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+        userAgentValue = ctx.packageName
+        // Inside the app's own storage: no permissions needed, and it is removed on uninstall,
+        // which the privacy policy's "uninstalling removes them" claim depends on.
+        osmdroidBasePath = File(ctx.filesDir, "osmdroid")
+        osmdroidTileCache = File(ctx.filesDir, "osmdroid/tiles")
+    }
+    osmdroidConfigured = true
+}
+
+/**
+ * A MapView that lives as long as the composable does, with its lifecycle forwarded from the host.
+ * [onCreate] runs once, for setup that must happen before the first draw.
+ */
+@Composable
+fun rememberMapView(onCreate: MapView.() -> Unit = {}): MapView {
+    val context = LocalContext.current
+    val map = remember {
+        configureOsmdroid(context)
+        MapView(context).apply {
+            setMultiTouchControls(true)
+            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+            onCreate()
+        }
+    }
+
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner, map) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> map.onResume()
+                Lifecycle.Event.ON_PAUSE  -> map.onPause()
+                else -> Unit
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose {
+            owner.lifecycle.removeObserver(observer)
+            // osmdroid holds a tile cache and downloader threads per MapView and expects this to
+            // release them. Previously AndroidView's onRelease did it; it belongs with the rest of
+            // the lifecycle now.
+            map.onDetach()
+        }
+    }
+    return map
+}
 
 const val STOP_MARKER_TAG = "stop"
 const val VEHICLE_MARKER_TAG = "vehicle"
