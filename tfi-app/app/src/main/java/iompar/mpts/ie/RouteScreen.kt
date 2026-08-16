@@ -93,17 +93,61 @@ fun RouteScreen(
                     HorizontalDivider()
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(s) { stop ->
-                            ListItem(
-                                leadingContent = { Text("${stop.stopSequence}", style = MaterialTheme.typography.labelSmall) },
-                                headlineContent = { Text(stop.stopName) },
-                                supportingContent = { Text(stop.stopCode) },
-                                modifier = Modifier.clickable { onOpenStop(stop.stopCode) },
-                            )
+                            RouteStopRow(stop = stop, onClick = { onOpenStop(stop.stopCode) })
                             HorizontalDivider()
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * A stop in the route list.
+ *
+ * Deliberately the same shape as TripScreen's TripStopRow rather than a Material3 ListItem: the
+ * two screens list the same thing and sat at different type scales and insets, ListItem's
+ * headline being bodyLarge against the trip view's bodyMedium (TFI-116). The trip row is the one
+ * with the sequence gutter and the tighter rhythm, so the route list follows it. What is missing
+ * here is only what a route has no answer for: a departure time.
+ */
+@Composable
+private fun RouteStopRow(stop: RouteStop, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)
+                .width(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "${stop.stopSequence}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Column(
+            Modifier
+                .weight(1f)
+                .padding(vertical = 10.dp, horizontal = 8.dp),
+        ) {
+            Text(
+                stop.stopName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            Text(
+                stop.stopCode,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
