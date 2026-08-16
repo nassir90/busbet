@@ -1,3 +1,6 @@
+# Compile check only — this is deliberately NOT the release path. It assembles a debug APK;
+# the release AAB that goes to Play is built by hand, because signing comes from a gitignored
+# local.properties that no runner has. See tfi-app/docs/PLAY_RELEASE.md.
 name: Android Build
 
 on:

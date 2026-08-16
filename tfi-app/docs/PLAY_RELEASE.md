@@ -197,7 +197,7 @@ opted in, continuously, for 14 days** before applying for production.
 Play requires a publicly reachable policy URL, and the app links to the same text
 internally.
 
-`PRIVACY_POLICY.md` is the single source; the app links to the hosted page rather than
+`docs/PRIVACY_POLICY.md` is the single source; the app links to the hosted page rather than
 carrying a copy, so this is the only place the wording lives. Regenerate and redeploy
 after editing it:
 

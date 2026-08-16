@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import java.time.LocalDateTime
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -73,6 +74,25 @@ fun NotificationWindowSheet(
 
     fun timeStr(m: Int) = "%02d:%02d".format(m / 60, m % 60)
 
+    // Re-read the clock on each minute boundary so "Active in 3h 20m" counts down while the sheet
+    // is open, and flips to "Currently active" the moment the window opens, without a reopen.
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000L - (System.currentTimeMillis() % 60_000L) + 250L)
+            now = LocalDateTime.now()
+        }
+    }
+
+    // Built from the sheet's current values rather than the saved window, so the status tracks
+    // edits. Cheap: a scan of at most 8 days.
+    val preview = NotificationWindow(
+        name = name, days = days, startMinute = startMin, endMinute = endMin,
+        stopCode = stopCode, stopName = stopName, routes = routes, enabled = enabled,
+    )
+    val isActive = enabled && preview.isActiveAt(now)
+    val status = preview.statusLabel(now)
+
     val canSave = name.isNotBlank() && stopCode.isNotEmpty() && days.isNotEmpty() && endMin > startMin
 
     ModalBottomSheet(
@@ -102,9 +122,27 @@ fun NotificationWindowSheet(
                 singleLine = true,
             )
 
-            // ── Days ─────────────────────────────────────────────────────────
+            // ── Time ─────────────────────────────────────────────────────────
+            // Days and the start/end pair are one section: on their own the day chips said nothing
+            // about whether the window was live, which is the question being asked while editing.
+            // The status on the right answers it from the values currently in the sheet, so it
+            // updates as they are changed rather than only after saving.
             Column {
-                Text("Days", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Time",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isActive) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(1 to "M", 2 to "T", 3 to "W", 4 to "T", 5 to "F", 6 to "S", 7 to "S")
@@ -116,39 +154,38 @@ fun NotificationWindowSheet(
                             )
                         }
                 }
-            }
-
-            // ── Time range ───────────────────────────────────────────────────
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) {
-                    OutlinedTextField(
-                        value = timeStr(startMin),
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Start") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Box(Modifier.matchParentSize().clickable {
-                        android.app.TimePickerDialog(
-                            context, { _, h, m -> startMin = h * 60 + m },
-                            startMin / 60, startMin % 60, true,
-                        ).show()
-                    })
-                }
-                Box(Modifier.weight(1f)) {
-                    OutlinedTextField(
-                        value = timeStr(endMin),
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("End") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Box(Modifier.matchParentSize().clickable {
-                        android.app.TimePickerDialog(
-                            context, { _, h, m -> endMin = h * 60 + m },
-                            endMin / 60, endMin % 60, true,
-                        ).show()
-                    })
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            value = timeStr(startMin),
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Start") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Box(Modifier.matchParentSize().clickable {
+                            android.app.TimePickerDialog(
+                                context, { _, h, m -> startMin = h * 60 + m },
+                                startMin / 60, startMin % 60, true,
+                            ).show()
+                        })
+                    }
+                    Box(Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            value = timeStr(endMin),
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("End") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Box(Modifier.matchParentSize().clickable {
+                            android.app.TimePickerDialog(
+                                context, { _, h, m -> endMin = h * 60 + m },
+                                endMin / 60, endMin % 60, true,
+                            ).show()
+                        })
+                    }
                 }
             }
 

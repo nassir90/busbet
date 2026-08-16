@@ -6,6 +6,11 @@ A thin Android client for live Dublin Bus / TFI departures, built with Kotlin an
 Jetpack Compose. It talks to the BusBet backend for stop boards, route views,
 realtime vehicle positions, scheduled notifications and a home-screen widget.
 
+Shipping a build to Google Play — the AAB, signing, the store listing and the
+declarations Play requires — is documented in
+[`docs/PLAY_RELEASE.md`](docs/PLAY_RELEASE.md). Note the release bundle is built by
+hand; CI only assembles a debug APK as a compile check.
+
 ## Screenshots
 
 | | | |

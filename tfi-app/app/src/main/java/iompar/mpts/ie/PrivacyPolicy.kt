@@ -7,7 +7,7 @@ import android.net.Uri
 import android.widget.Toast
 
 /**
- * The policy text itself lives in tfi-app/PRIVACY_POLICY.md and is published to this URL by
+ * The policy text itself lives in tfi-app/docs/PRIVACY_POLICY.md and is published to this URL by
  * scripts/gen-privacy-policy-html.py. The app deliberately carries no copy of it: two copies drift,
  * and the one users are shown would then be whatever shipped in their build rather than the current
  * policy. Play's requirement that the policy be reachable from inside the app is met by this link.

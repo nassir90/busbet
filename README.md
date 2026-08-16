@@ -6,6 +6,8 @@ A Dublin Bus / TFI live-departures stack: realtime stop boards built on the
 National Transport Authority GTFS-Realtime feed, plus the data-collection,
 historical-analysis and client apps around it.
 
+Full documentation index: [`docs/`](docs/README.md).
+
 ## Apps
 
 ### tfi-app

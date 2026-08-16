@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generates the hosted privacy policy page from tfi-app/PRIVACY_POLICY.md.
+Generates the hosted privacy policy page from tfi-app/docs/PRIVACY_POLICY.md.
 
 The app used to carry the policy text as a Kotlin constant and this script parsed it back out.
 That inverted once the app dropped its in-app copy and started linking to the hosted page: the
@@ -13,7 +13,7 @@ Served at https://iompar.mpts.ie/privacy-policy
 (Caddy file_server over /srv/www/iompar).
 
 The markdown carries no HTML of its own, comments included — everything in it is published. The
-notes on keeping it truthful live in tfi-app/PLAY_RELEASE.md, under "Privacy policy".
+notes on keeping it truthful live in tfi-app/docs/PLAY_RELEASE.md, under "Privacy policy".
 """
 
 import html
@@ -22,7 +22,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "tfi-app/PRIVACY_POLICY.md"
+SRC = ROOT / "tfi-app/docs/PRIVACY_POLICY.md"
 OUT = ROOT / "www/iompar/privacy-policy.html"
 
 
