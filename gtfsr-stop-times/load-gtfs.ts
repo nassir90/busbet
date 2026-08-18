@@ -74,7 +74,7 @@ interface Loader {
  * mismatch we drop and rebuild — every table here is derived from the GTFS feed and carries no
  * state worth preserving.
  */
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 
 async function createSqliteLoader(dbPath: string): Promise<Loader> {
 	mkdirSync(dirname(dbPath), { recursive: true });
@@ -103,7 +103,7 @@ async function createSqliteLoader(dbPath: string): Promise<Loader> {
 		CREATE TABLE IF NOT EXISTS stops (stop_id TEXT PRIMARY KEY, stop_code TEXT, stop_name TEXT, stop_lat REAL, stop_lon REAL);
 		CREATE INDEX IF NOT EXISTS idx_stops_code ON stops(stop_code);
 		CREATE INDEX IF NOT EXISTS idx_stops_name ON stops(stop_name COLLATE NOCASE);
-		CREATE TABLE IF NOT EXISTS routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT);
+		CREATE TABLE IF NOT EXISTS routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT, route_type INTEGER);
 		CREATE TABLE IF NOT EXISTS trips (trip_id TEXT PRIMARY KEY, route_id TEXT, service_id TEXT, trip_headsign TEXT, direction_id INTEGER, shape_id TEXT);
 		CREATE INDEX IF NOT EXISTS idx_trips_route ON trips(route_id);
 		CREATE INDEX IF NOT EXISTS idx_trips_service ON trips(service_id);
@@ -118,7 +118,7 @@ async function createSqliteLoader(dbPath: string): Promise<Loader> {
 
 	const INSERT: Record<string, string> = {
 		stops: 'INSERT OR REPLACE INTO stops VALUES (:stop_id,:stop_code,:stop_name,:stop_lat,:stop_lon)',
-		routes: 'INSERT OR REPLACE INTO routes VALUES (:route_id,:route_short_name,:route_long_name,:agency_id)',
+		routes: 'INSERT OR REPLACE INTO routes VALUES (:route_id,:route_short_name,:route_long_name,:agency_id,:route_type)',
 		trips: 'INSERT OR REPLACE INTO trips VALUES (:trip_id,:route_id,:service_id,:trip_headsign,:direction_id,:shape_id)',
 		shapes: 'INSERT OR REPLACE INTO shapes VALUES (:shape_id,:seq,:lat,:lon)',
 		stop_times: 'INSERT OR REPLACE INTO stop_times VALUES (:trip_id,:stop_id,:stop_sequence,:arrival_time,:departure_time)',
@@ -362,7 +362,7 @@ async function importShapes(loader: Loader, dir: string, toleranceM: number) {
 async function importAll(loader: Loader, dir: string) {
 	const tables: Array<[string, (r: Record<string, string>) => Record<string, unknown>]> = [
 		['stops', (r) => ({ stop_id: r.stop_id, stop_code: r.stop_code, stop_name: r.stop_name, stop_lat: parseFloat(r.stop_lat) || null, stop_lon: parseFloat(r.stop_lon) || null })],
-		['routes', (r) => ({ route_id: r.route_id, route_short_name: r.route_short_name, route_long_name: r.route_long_name ?? '', agency_id: r.agency_id ?? '' })],
+		['routes', (r) => ({ route_id: r.route_id, route_short_name: r.route_short_name, route_long_name: r.route_long_name ?? '', agency_id: r.agency_id ?? '', route_type: r.route_type ? parseInt(r.route_type) : null })],
 		['trips', (r) => ({ trip_id: r.trip_id, route_id: r.route_id, service_id: r.service_id, trip_headsign: r.trip_headsign ?? '', direction_id: parseInt(r.direction_id || '0') || 0, shape_id: r.shape_id || null })],
 		['stop_times', (r) => ({ trip_id: r.trip_id, stop_id: r.stop_id, stop_sequence: parseInt(r.stop_sequence || '0'), arrival_time: r.arrival_time, departure_time: r.departure_time })],
 		['calendar', (r) => ({ service_id: r.service_id, monday: +r.monday, tuesday: +r.tuesday, wednesday: +r.wednesday, thursday: +r.thursday, friday: +r.friday, saturday: +r.saturday, sunday: +r.sunday, start_date: r.start_date, end_date: r.end_date })],

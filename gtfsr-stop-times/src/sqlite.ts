@@ -7,6 +7,20 @@ function openDb(path: string): Client {
 	return createClient({ url: `file:${path}` });
 }
 
+/**
+ * Turns a GROUP_CONCAT of route_type ints ("0,3") into a sorted number[]. NULL route_types (a
+ * route loaded before the column existed) are dropped rather than becoming NaN.
+ */
+function parseRouteTypes(concat: string | null): number[] {
+	if (!concat) return [];
+	const set = new Set<number>();
+	for (const part of concat.split(',')) {
+		const n = parseInt(part, 10);
+		if (Number.isFinite(n)) set.add(n);
+	}
+	return [...set].sort((a, b) => a - b);
+}
+
 function minsToGtfsTime(totalMins: number): string {
 	const h = Math.floor(totalMins / 60);
 	const m = totalMins % 60;
@@ -30,7 +44,12 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				              FROM stop_times st
 				              JOIN trips t ON t.trip_id = st.trip_id
 				              JOIN routes r ON r.route_id = t.route_id
-				              WHERE st.stop_id = s.stop_id) AS routes
+				              WHERE st.stop_id = s.stop_id) AS routes,
+				             (SELECT GROUP_CONCAT(DISTINCT r.route_type)
+				              FROM stop_times st
+				              JOIN trips t ON t.trip_id = st.trip_id
+				              JOIN routes r ON r.route_id = t.route_id
+				              WHERE st.stop_id = s.stop_id) AS route_types
 				      FROM stops s
 				      WHERE UPPER(s.stop_name) LIKE ? OR s.stop_code LIKE ?
 				      LIMIT 20`,
@@ -44,16 +63,38 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				stop_lon: (row.stop_lon as number | null) ?? undefined,
 				routes: row.routes
 					? (row.routes as string).split(',').sort((a, b) => a.localeCompare(b))
-					: []
+					: [],
+				route_types: parseRouteTypes(row.route_types as string | null)
 			})) as Stop[];
 		},
 
 		async getStopByCode(code: string) {
-			const r = await db.execute({
-				sql: 'SELECT * FROM stops WHERE stop_code = ?',
+			// stop_id first, then stop_code. Rail stations mostly carry stop_code '0' in the NTA
+			// feed, so a code-only lookup can't tell 84 of them apart — the client addresses those
+			// by stop_id instead. stop_ids always contain letters (e.g. 8250IR0031) while codes are
+			// numeric, so an id lookup never shadows a real code.
+			let r = await db.execute({
+				sql: 'SELECT * FROM stops WHERE stop_id = ? LIMIT 1',
 				args: [code]
 			});
-			return r.rows.length ? (r.rows[0] as unknown as Stop) : null;
+			if (!r.rows.length) {
+				r = await db.execute({
+					sql: 'SELECT * FROM stops WHERE stop_code = ? LIMIT 1',
+					args: [code]
+				});
+			}
+			if (!r.rows.length) return null;
+			const row = r.rows[0] as unknown as Stop;
+			const rt = await db.execute({
+				sql: `SELECT GROUP_CONCAT(DISTINCT r.route_type) AS route_types
+				      FROM stop_times st
+				      JOIN trips t ON t.trip_id = st.trip_id
+				      JOIN routes r ON r.route_id = t.route_id
+				      WHERE st.stop_id = ?`,
+				args: [row.stop_id]
+			});
+			row.route_types = parseRouteTypes(rt.rows[0]?.route_types as string | null);
+			return row;
 		},
 
 		async getActiveServiceIds(dayName: string, date: string) {
@@ -103,6 +144,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				        st.stop_sequence,
 				        st.departure_time,
 				        r.route_short_name,
+				        r.route_type,
 				        t.direction_id,
 				        t.trip_headsign
 				      FROM stop_times st
@@ -132,6 +174,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 					stop_id: row.stop_id as string,
 					stop_sequence: row.stop_sequence as number,
 					route_short_name: row.route_short_name as string,
+					route_type: (row.route_type as number | null) ?? null,
 					direction_id: row.direction_id as number,
 					trip_headsign: (row.trip_headsign as string) ?? 'Unknown',
 					scheduled_departure: scheduledDisplay,
@@ -155,7 +198,8 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				        s.stop_lon,
 				        t.trip_headsign,
 				        t.direction_id,
-				        r.route_short_name
+				        r.route_short_name,
+				        r.route_type
 				      FROM stop_times st
 				      JOIN stops s ON s.stop_id = st.stop_id
 				      JOIN trips t ON t.trip_id = st.trip_id
@@ -176,6 +220,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 			return {
 				trip_id: tripId,
 				route_short_name: first.route_short_name as string,
+				route_type: (first.route_type as number | null) ?? null,
 				trip_headsign: (first.trip_headsign as string) ?? 'Unknown',
 				direction_id: first.direction_id as number,
 				stops: r.rows.map((row) => ({
@@ -211,7 +256,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 
 			// Step 1: scan routes (412 rows) — fast regardless of LIKE pattern
 			const routeRows = await db.execute({
-				sql: `SELECT route_id, route_short_name FROM routes
+				sql: `SELECT route_id, route_short_name, route_type FROM routes
 				      WHERE UPPER(route_short_name) LIKE ? LIMIT 10`,
 				args: [like]
 			});
@@ -220,7 +265,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 			// Steps 2+3: per route, fetch directions (idx_trips_route) then first/last
 			// stops (primary key). All routes processed in parallel.
 			const perRoute = await Promise.all(
-				(routeRows.rows as unknown as { route_id: string; route_short_name: string }[]).map(async (route) => {
+				(routeRows.rows as unknown as { route_id: string; route_short_name: string; route_type: number | null }[]).map(async (route) => {
 					const dirRows = await db.execute({
 						sql: `SELECT direction_id, MIN(trip_id) AS rep_trip
 						      FROM trips WHERE route_id = ? GROUP BY direction_id`,
@@ -244,6 +289,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 							]);
 							return {
 								route_short_name: route.route_short_name,
+								route_type: route.route_type ?? null,
 								direction_id: dir.direction_id,
 								from_stop: (first.rows[0]?.stop_name as string) ?? '',
 								to_stop: (last.rows[0]?.stop_name as string) ?? ''
@@ -275,15 +321,17 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 		},
 
 		async getRoutesForStop(stopCode: string): Promise<string[]> {
+			// Accept a stop_id as well as a stop_code, so rail stations (whose code is '0') resolve
+			// to a single station rather than the union of every '0'-coded stop. See getStopByCode.
 			const r = await db.execute({
 				sql: `SELECT DISTINCT r.route_short_name
 				      FROM routes r
 				      JOIN trips t ON t.route_id = r.route_id
 				      JOIN stop_times st ON st.trip_id = t.trip_id
 				      JOIN stops s ON s.stop_id = st.stop_id
-				      WHERE s.stop_code = ?
+				      WHERE s.stop_id = ? OR s.stop_code = ?
 				      LIMIT 50`,
-				args: [stopCode]
+				args: [stopCode, stopCode]
 			});
 			return r.rows.map((row) => row.route_short_name as string);
 		},
