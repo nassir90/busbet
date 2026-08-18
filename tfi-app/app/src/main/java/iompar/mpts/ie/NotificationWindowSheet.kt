@@ -208,10 +208,13 @@ fun NotificationWindowSheet(
                         Column {
                             stopResults.forEachIndexed { i, stop ->
                                 CompactSearchRow(
-                                    label = "${stop.stopCode}  ${stop.stopName}",
+                                    label = if (stop.stopCode.isBlank() || stop.stopCode == "0")
+                                        stop.stopName else "${stop.stopCode}  ${stop.stopName}",
                                     services = stop.routes,
+                                    trailing = { StopModeIcon(stop.routeTypes) },
                                     onClick = {
-                                        stopCode    = stop.stopCode
+                                        // Rail stations share code "0"; address by stop_id instead.
+                                        stopCode    = stop.addressId
                                         stopName    = stop.stopName
                                         stopQuery   = stop.stopName
                                         stopResults = emptyList()

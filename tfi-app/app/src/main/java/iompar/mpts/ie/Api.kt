@@ -20,12 +20,29 @@ data class Stop(
     @SerializedName("stop_lat") val stopLat: Double? = null,
     @SerializedName("stop_lon") val stopLon: Double? = null,
     @SerializedName("routes") val routes: List<String>? = null,
+    /**
+     * Distinct GTFS route_type values of the services calling here (0 tram/Luas, 2 rail, 3 bus).
+     * Null on backends that predate the field; a stop is effectively single-mode in practice, so
+     * [TransitMode.ofStop] picks one for the stop's logo.
+     */
+    @SerializedName("route_types") val routeTypes: List<Int>? = null,
 )
+
+/**
+ * The identifier to address this stop by in API calls (open a board, favourite it). Rail stations
+ * carry stop_code "0" in the NTA feed, so 84 of them share one code and can't be told apart — those
+ * fall back to the unique stop_id. The backend resolves a stop_id or a stop_code interchangeably,
+ * so bus stops keep using their familiar numeric code.
+ */
+val Stop.addressId: String
+    get() = if (stopCode.isBlank() || stopCode == "0") stopId else stopCode
 
 data class Departure(
     @SerializedName("trip_id") val tripId: String,
     @SerializedName("stop_sequence") val stopSequence: Int,
     @SerializedName("route_short_name") val routeShortName: String,
+    /** GTFS route_type of the departing service (0 tram/Luas, 2 rail, 3 bus). Null on old backends. */
+    @SerializedName("route_type") val routeType: Int? = null,
     @SerializedName("direction_id") val directionId: Int,
     @SerializedName("trip_headsign") val tripHeadsign: String,
     @SerializedName("scheduled_departure") val scheduledDeparture: String,
@@ -58,6 +75,8 @@ data class BatchDeparturesResponse(
 
 data class RouteDirection(
     @SerializedName("route_short_name") val routeShortName: String,
+    /** GTFS route_type of this route (0 tram/Luas, 2 rail, 3 bus). Null on old backends. */
+    @SerializedName("route_type") val routeType: Int? = null,
     @SerializedName("direction_id") val directionId: Int,
     @SerializedName("from_stop") val fromStop: String,
     @SerializedName("to_stop") val toStop: String,
@@ -105,6 +124,8 @@ data class ShapePoint(
 data class TripDetail(
     @SerializedName("trip_id") val tripId: String,
     @SerializedName("route_short_name") val routeShortName: String,
+    /** GTFS route_type of this trip's route (0 tram/Luas, 2 rail, 3 bus). Null on old backends. */
+    @SerializedName("route_type") val routeType: Int? = null,
     @SerializedName("trip_headsign") val tripHeadsign: String,
     @SerializedName("direction_id") val directionId: Int,
     val stops: List<TripStop>,

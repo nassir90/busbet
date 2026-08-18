@@ -222,6 +222,12 @@ fun StopScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Mode logo left of the stop id, once we know what serves this stop.
+                val stopModeTypes = data?.stop?.routeTypes
+                if (!stopModeTypes.isNullOrEmpty()) {
+                    StopModeIcon(stopModeTypes)
+                    Spacer(Modifier.width(6.dp))
+                }
                 Text("Stop $code", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.weight(1f))
                 dataAsOf?.let {

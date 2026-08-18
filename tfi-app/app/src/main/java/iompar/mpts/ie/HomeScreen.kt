@@ -403,9 +403,15 @@ fun HomeScreen(
                         if (stopResults.isNotEmpty()) {
                             item { SectionLabel("Stops") }
                             items(stopResults) { s ->
-                                val isFavourite = s.stopCode in favouriteCodes
+                                // Rail stations share stop_code "0"; address them by stop_id so the
+                                // right station is opened and favourited. Bus/Luas keep their code.
+                                val stopId = s.addressId
+                                val isFavourite = stopId in favouriteCodes
+                                val stopLabel =
+                                    if (s.stopCode.isBlank() || s.stopCode == "0") s.stopName
+                                    else "${s.stopCode}  ${s.stopName}"
                                 CompactSearchRow(
-                                    label = "${s.stopCode}  ${s.stopName}",
+                                    label = stopLabel,
                                     services = s.routes,
                                     // Favouriting is what most searches are for, so it happens on
                                     // the result row itself. Onboarding was otherwise search →
@@ -424,25 +430,27 @@ fun HomeScreen(
                                                 .size(26.dp)
                                                 .clickable {
                                                     scope.launch {
-                                                        if (isFavourite) favStore.remove(s.stopCode)
-                                                        else favStore.add(s.stopCode, s.stopName, s.stopLat, s.stopLon)
+                                                        if (isFavourite) favStore.remove(stopId)
+                                                        else favStore.add(stopId, s.stopName, s.stopLat, s.stopLon)
                                                     }
                                                 }
                                                 .padding(3.dp),
                                         )
                                     },
+                                    // Mode logo on the far right, past the route chips.
+                                    trailing = { StopModeIcon(s.routeTypes) },
                                     onClick = {
                                         scope.launch {
                                             historyStore.record(
                                                 SearchHistoryEntry(
                                                     isRoute = false,
-                                                    id = s.stopCode,
-                                                    label = "${s.stopCode}  ${s.stopName}",
+                                                    id = stopId,
+                                                    label = stopLabel,
                                                     routes = s.routes,
                                                 )
                                             )
                                         }
-                                        onOpenStop(s.stopCode)
+                                        onOpenStop(stopId)
                                     },
                                 )
                                 HorizontalDivider()
@@ -632,6 +640,12 @@ private fun FavouriteCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Mode logo left of the name, once the board tells us what serves this stop.
+                val cardModeTypes = board?.stop?.routeTypes
+                if (!cardModeTypes.isNullOrEmpty()) {
+                    StopModeIcon(cardModeTypes)
+                    Spacer(Modifier.width(8.dp))
+                }
                 Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
                     Text(favourite.displayName, style = MaterialTheme.typography.titleMedium)
                     if (!favourite.customName.isNullOrBlank()) {
