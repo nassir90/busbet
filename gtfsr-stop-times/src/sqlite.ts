@@ -71,17 +71,22 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 		},
 
 		async getStopByCode(code: string) {
-			// stop_id first, then stop_code. Rail stations mostly carry stop_code '0' in the NTA
-			// feed, so a code-only lookup can't tell 84 of them apart — the client addresses those
-			// by stop_id instead. stop_ids always contain letters (e.g. 8250IR0031) while codes are
-			// numeric, so an id lookup never shadows a real code.
+			// stop_id first, then stop_code. 84 stops share stop_code '0' in the NTA feed, so a
+			// code-only lookup cannot tell them apart — the client addresses those by stop_id
+			// instead. stop_ids always contain letters (e.g. 8250IR0031) while codes are numeric,
+			// so an id lookup never shadows a real code.
 			let r = await db.execute({
 				sql: 'SELECT * FROM stops WHERE stop_id = ? LIMIT 1',
 				args: [code]
 			});
 			if (!r.rows.length) {
+				// '0' is not the only duplicate: 53 further codes are shared, nearly all Luas
+				// platform pairs (998001 and friends, one row per direction). Nothing here can
+				// pick the right one from a code alone, but ordering by stop_id at least makes
+				// the choice stable, so the same code doesn't resolve to a different platform
+				// between calls.
 				r = await db.execute({
-					sql: 'SELECT * FROM stops WHERE stop_code = ? LIMIT 1',
+					sql: 'SELECT * FROM stops WHERE stop_code = ? ORDER BY stop_id LIMIT 1',
 					args: [code]
 				});
 			}
