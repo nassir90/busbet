@@ -6,8 +6,6 @@ package iompar.mpts.ie
  * route_type on stops, departures, routes and trips — this maps it to the handful of modes the UI
  * actually distinguishes (a logo, a label). Anything unrecognised falls back to [BUS], which is by
  * far the common case and the safest default for a service that started life bus-only.
- *
- * The mode logos themselves (card view, stop view, search pane) are TFI-118.
  */
 enum class TransitMode(val label: String) {
     BUS("Bus"),

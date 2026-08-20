@@ -11,12 +11,12 @@ if (localPropsFile.exists()) localPropsFile.withInputStream { localProps.load(it
 
 android {
     namespace 'iompar.mpts.ie'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "iompar.mpts.ie"
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         // Bumped once per ticket implemented, not once per release: Sentry groups events by
         // release, so a version that only moves when someone remembers to move it puts weeks of
         // unrelated builds into one bucket and makes "did that fix land?" unanswerable.
