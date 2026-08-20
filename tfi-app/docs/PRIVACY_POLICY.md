@@ -1,4 +1,4 @@
-Updated: 15 August 2026
+Updated: 20 August 2026
 
 Iompar shows live bus departure times in Dublin. It uses open transport data. This policy tells you what the app does with your data.
 
@@ -37,7 +37,7 @@ If you remove the app, the device deletes this data.
 
 ## Servers and network
 
-The app gets timetable data and live departure data from the backend servers. The servers are in Germany. The connection to the servers is encrypted. Cloudflare supplies the network connection.
+The app gets timetable data and live departure data from the backend servers. The servers are in the United Kingdom. The connection to the servers is encrypted. Cloudflare supplies the network connection.
 
 The servers do not keep a record of the IP address of a request.
 
