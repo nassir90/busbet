@@ -31,9 +31,14 @@ snapshot and restarts again.
 Run it by hand:
 
 ```
-DEPLOY_HOST=<host> DEPLOY_USER=root DEPLOY_PATH=/srv/busbet \
+DEPLOY_HOST=gcp DEPLOY_PATH=Projects/busbet \
   scripts/deploy-backend.sh gtfsr-stop-times
 ```
+
+The services run as systemd **user** units on `gcp` under the login account (no root, no
+passwordless sudo), so `DEPLOY_USER` is left unset — `~/.ssh/config` supplies the user — and
+`DEPLOY_PATH` is relative to the remote home directory. `SERVICE_ACCOUNT` defaults to `self`,
+which drives the unit with `systemctl --user`.
 
 Add `DRY_RUN=1` to see the rsync plan without changing anything on the box.
 
@@ -47,8 +52,8 @@ secrets exists:
 | Secret | What it is |
 | --- | --- |
 | `DEPLOY_HOST` | hostname/IP of the box running the units |
-| `DEPLOY_USER` | ssh user (e.g. `root`) |
-| `DEPLOY_PATH` | parent directory holding the service directories |
+| `DEPLOY_USER` | ssh user. In Actions there is no `~/.ssh/config`, so unlike a local run this **must** be set — for gcp, the login account that owns the units |
+| `DEPLOY_PATH` | parent directory holding the service directories (`Projects/busbet` on gcp) |
 | `DEPLOY_SSH_KEY` | private key for a deploy keypair authorised on that box |
 | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan` output for the host, so host-key checking stays on |
 

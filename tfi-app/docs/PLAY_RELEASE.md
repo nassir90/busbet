@@ -203,11 +203,18 @@ after editing it:
 
 ```
 python3 scripts/gen-privacy-policy-html.py     # writes www/iompar/privacy-policy.html
-scp www/iompar/privacy-policy.html hetzner:/tmp/pp.html
-ssh hetzner 'cp /tmp/pp.html /srv/www/iompar/privacy-policy.html'
+scp www/iompar/privacy-policy.html gcp:srv/www/iompar/privacy-policy.html
+curl -fsS https://iompar.mpts.ie/privacy-policy | head -5   # confirm it went live
 ```
 
-Served at <https://iompar.mpts.ie/privacy-policy> by Caddy from `/srv/www/iompar`.
+Served at <https://iompar.mpts.ie/privacy-policy> by Caddy from `~/srv/www/iompar` on the
+**gcp** host. No `sudo` step is needed: gcp runs everything rootless under the login user, so
+the scp lands directly in place — unlike the retired hetzner box, where the files lived in
+`/srv/www` and had to be staged through `/tmp` and copied as root.
+
+The same page is also published at `/bus-dashboard-for-dublin/privacy-policy`, which is the
+older URL already referenced by a live Play listing. Both are served from `~/srv/www`; if you
+change one, check whether the other needs the same edit.
 
 Two declarations must stay true to that text: the **Data safety** form, and the claim
 that crash reporting is off. Sentry is currently initialised in **debug builds only**, so
