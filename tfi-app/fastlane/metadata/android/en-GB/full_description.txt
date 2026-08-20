@@ -1,6 +1,8 @@
-Iompar shows live Dublin bus departures using the National Transport Authority's realtime data.
+Iompar shows live Dublin bus departures using open public transport data.
 
-Search for a stop or a route, see what is actually coming and when, and watch buses move on the map as they approach. No account, no ads, no tracking.
+IMPORTANT: Iompar is an independent app and does not represent a government entity. It is not affiliated with, endorsed by, or connected to Transport for Ireland, the National Transport Authority, Dublin Bus, or any government body. Official sources for the data it displays are listed under DATA SOURCE below.
+
+Search for a stop or a route, see what is actually coming and when, and watch buses move on the map as they approach.
 
 LIVE DEPARTURES
 
@@ -46,4 +48,15 @@ Full policy: https://iompar.mpts.ie/privacy-policy
 
 DATA SOURCE
 
-Timetable and realtime data come from Transport for Ireland's open GTFS and GTFS-Realtime feeds. Iompar is an independent app and is not affiliated with, endorsed by, or connected to Transport for Ireland, the National Transport Authority or Dublin Bus.
+All timetable and realtime information shown in Iompar comes from open data published by the National Transport Authority of Ireland. The official sources are:
+
+Timetable data (GTFS), published by Transport for Ireland:
+https://www.transportforireland.ie/transitData/PT_Data.html
+
+Realtime data (GTFS-Realtime), published by the National Transport Authority:
+https://developer.nationaltransport.ie/
+
+National Transport Authority:
+https://www.nationaltransport.ie/
+
+Iompar is an independent app and does not represent a government entity. It is not affiliated with, endorsed by, or connected to Transport for Ireland, the National Transport Authority, Dublin Bus, or any government body.

@@ -1,0 +1,3 @@
+The notification editor now says whether a window is active, or how long until it is.
+The route list matches the trip list.
+Maps keep their tiles when you leave the app and come back.
