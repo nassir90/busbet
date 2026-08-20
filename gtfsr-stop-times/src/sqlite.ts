@@ -38,21 +38,23 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 
 		async searchStops(query: string) {
 			const like = `%${query.toUpperCase()}%`;
+			// Narrow to the 20 matching stops first, then walk stop_times once for that set.
+			// Two correlated subqueries here — one for names, one for types — meant two passes over
+			// stop_times -> trips -> routes per matched stop. That is the expensive part: a common
+			// term fills the LIMIT and pays it 20 times, and on a cold page cache a search for
+			// "bus" took 35 seconds against the 896MB database.
 			const r = await db.execute({
 				sql: `SELECT s.stop_id, s.stop_code, s.stop_name, s.stop_lat, s.stop_lon,
-				             (SELECT GROUP_CONCAT(DISTINCT r.route_short_name)
-				              FROM stop_times st
-				              JOIN trips t ON t.trip_id = st.trip_id
-				              JOIN routes r ON r.route_id = t.route_id
-				              WHERE st.stop_id = s.stop_id) AS routes,
-				             (SELECT GROUP_CONCAT(DISTINCT r.route_type)
-				              FROM stop_times st
-				              JOIN trips t ON t.trip_id = st.trip_id
-				              JOIN routes r ON r.route_id = t.route_id
-				              WHERE st.stop_id = s.stop_id) AS route_types
-				      FROM stops s
-				      WHERE UPPER(s.stop_name) LIKE ? OR s.stop_code LIKE ?
-				      LIMIT 20`,
+				             GROUP_CONCAT(DISTINCT r.route_short_name) AS routes,
+				             GROUP_CONCAT(DISTINCT r.route_type)       AS route_types
+				      FROM (SELECT stop_id, stop_code, stop_name, stop_lat, stop_lon
+				            FROM stops
+				            WHERE UPPER(stop_name) LIKE ? OR stop_code LIKE ?
+				            LIMIT 20) s
+				      LEFT JOIN stop_times st ON st.stop_id = s.stop_id
+				      LEFT JOIN trips t       ON t.trip_id  = st.trip_id
+				      LEFT JOIN routes r      ON r.route_id = t.route_id
+				      GROUP BY s.stop_id`,
 				args: [like, like]
 			});
 			return r.rows.map((row) => ({
