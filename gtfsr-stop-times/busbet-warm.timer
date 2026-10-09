@@ -1,0 +1,13 @@
+[Unit]
+Description=Warm the GTFS database every few minutes
+
+[Timer]
+# Five minutes is well inside the window in which the collector's writes evict the
+# database, so a real user should never meet a cold cache. The first run after a reboot
+# is the slow one, by design.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
