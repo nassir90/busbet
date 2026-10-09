@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -322,7 +324,7 @@ fun SettingsScreen(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Slider(
+                PlainSlider(
                     value = farStopThresholdM.toFloat(),
                     onValueChange = { scope.launch { settingsStore.setFarStopThresholdM(it.toInt()) } },
                     valueRange = 1000f..20000f,
@@ -371,7 +373,7 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Slider(
+                        PlainSlider(
                             value = routeLineDistanceM.toFloat(),
                             onValueChange = { scope.launch { settingsStore.setRouteLineDistanceM(it.toInt()) } },
                             valueRange = MIN_ROUTE_LINE_DISTANCE_M.toFloat()..MAX_ROUTE_LINE_DISTANCE_M.toFloat(),
@@ -395,7 +397,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Slider(
+                    PlainSlider(
                         value = busDisplayThresholdMin.toFloat(),
                         onValueChange = { scope.launch { settingsStore.setBusDisplayThresholdMin(it.toInt()) } },
                         valueRange = 5f..120f,
@@ -868,7 +870,7 @@ private fun ColorPickerDialog(
 private fun ChannelSlider(label: String, value: Float, tint: Color, onChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.width(16.dp), color = tint, fontWeight = FontWeight.Bold)
-        Slider(
+        PlainSlider(
             value = value,
             onValueChange = onChange,
             valueRange = 0f..255f,
@@ -877,6 +879,55 @@ private fun ChannelSlider(label: String, value: Float, tint: Color, onChange: (F
         )
         Text(value.toInt().toString(), Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium)
     }
+}
+
+/**
+ * A slider drawn plainly: a round thumb on a thin track, nothing else.
+ *
+ * Material 3 (1.3) draws a dot for every step and another at the end, uses a tall bar for the
+ * thumb with a gap cut into the track on each side, and halves that bar's width while it's being
+ * dragged. With 18 to 28 steps on each settings slider it read as a dotted ruler rather than a
+ * control. Steps still snap; they just aren't drawn.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlainSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    steps: Int = 0,
+    enabled: Boolean = true,
+    colors: SliderColors = SliderDefaults.colors(),
+) {
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        valueRange = valueRange,
+        steps = steps,
+        colors = colors,
+        thumb = {
+            Box(
+                Modifier
+                    .size(20.dp)
+                    .shadow(1.dp, CircleShape)
+                    .background(if (enabled) colors.thumbColor else colors.disabledThumbColor, CircleShape),
+            )
+        },
+        track = { state ->
+            SliderDefaults.Track(
+                sliderState = state,
+                modifier = Modifier.height(4.dp),
+                enabled = enabled,
+                colors = colors,
+                drawStopIndicator = null,
+                drawTick = { _, _ -> },
+                thumbTrackGapSize = 0.dp,
+            )
+        },
+    )
 }
 
 private fun hexOf(c: Int): String = "#%06X".format(c and 0xFFFFFF)
