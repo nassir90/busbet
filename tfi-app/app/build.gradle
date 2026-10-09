@@ -2,6 +2,7 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'org.jetbrains.kotlin.plugin.compose'
+    id 'io.github.takahirom.roborazzi'
 }
 
 // Read secrets from local.properties (gitignored) so they're never committed.
@@ -70,6 +71,14 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            all {
+                maxHeapSize = '3g'
+            }
+        }
+    }
     buildFeatures {
         compose true
         buildConfig true
@@ -128,4 +137,12 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2'
     testImplementation 'io.ktor:ktor-server-test-host:3.2.3'
+
+    testImplementation composeBom
+    testImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+    testImplementation 'org.robolectric:robolectric:4.17'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi:1.76.0'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi-compose:1.76.0'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi-junit-rule:1.76.0'
 }
