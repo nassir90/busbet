@@ -3,6 +3,8 @@ package iompar.mpts.ie
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
@@ -14,11 +16,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.views.CustomZoomButtonsController
 import java.io.File
+import java.util.WeakHashMap
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polyline
@@ -31,20 +36,68 @@ import org.osmdroid.views.overlay.Polyline
  * recorded on each function.
  */
 
-private fun cartoTiles(style: String) = XYTileSource(
-    "CartoDB.$style",
-    1, 19, 256, ".png",
-    arrayOf(
-        "https://a.basemaps.cartocdn.com/${style}/",
-        "https://b.basemaps.cartocdn.com/${style}/",
-        "https://c.basemaps.cartocdn.com/${style}/",
-        "https://d.basemaps.cartocdn.com/${style}/",
-    ),
-    "© CartoDB © OpenStreetMap contributors",
-)
+/**
+ * OpenStreetMap's own raster tiles, through osmdroid's built-in source for them.
+ *
+ * CARTO stopped serving keyless tiles in September 2026: every tile now comes back stamped "API
+ * KEY REQUIRED". OSM's tile servers need no key, and their usage policy admits a published app
+ * on conditions MAPNIK's own TileSourcePolicy already enforces — a distinct User-Agent (osmdroid
+ * sends `<package>/<versionCode>`), honouring cache headers, at most two connections, and no
+ * bulk or preventive downloading (https://operations.osmfoundation.org/policies/tiles/). So no
+ * "download this area for offline" on top of it: the policy forbids exactly that.
+ *
+ * OpenFreeMap is keyless too, but vector-only, which osmdroid can't draw.
+ */
+val BASE_TILES: OnlineTileSourceBase = TileSourceFactory.MAPNIK
 
-val CARTO_DARK: XYTileSource = cartoTiles("dark_all")
-val CARTO_LIGHT: XYTileSource = cartoTiles("light_all")
+private fun linear(scale: Float, offset: Float) = ColorMatrix(floatArrayOf(
+    scale, 0f, 0f, 0f, offset,
+    0f, scale, 0f, 0f, offset,
+    0f, 0f, scale, 0f, offset,
+    0f, 0f, 0f, 1f, 0f,
+))
+
+/*
+ * OSM has a single style, so both themes are derived from it with a colour filter. Light mode is
+ * muted because the standard style is busy, and its blue bus-stop dots read as the app's own
+ * markers. Dark mode inverts, rotates the hue back round so water stays blue and parks green, then
+ * mutes and dims. Both were tuned by rendering these matrices over real tiles of Aston Quay, to
+ * land near the CARTO Positron / Dark Matter look the app had before.
+ *
+ * A filter rather than a second tile set also means a theme switch repaints from tiles already
+ * cached instead of downloading the city again.
+ */
+private val LIGHT_TILE_FILTER = ColorMatrixColorFilter(ColorMatrix().apply {
+    setSaturation(0.2f)
+    postConcat(linear(0.9f, 26f))
+})
+
+private val DARK_TILE_FILTER = ColorMatrixColorFilter(linear(-1f, 255f).apply {
+    // A 180° hue rotation: the CSS hue-rotate() matrix with cos = -1, sin = 0.
+    postConcat(ColorMatrix(floatArrayOf(
+        -0.574f, 1.430f,  0.144f, 0f, 0f,
+         0.426f, 0.430f,  0.144f, 0f, 0f,
+         0.426f, 1.430f, -0.856f, 0f, 0f,
+         0f,     0f,      0f,     1f, 0f,
+    )))
+    postConcat(ColorMatrix().apply { setSaturation(0.2f) })
+    postConcat(linear(0.72f, 6f))
+})
+
+private val styledDark = WeakHashMap<MapView, Boolean>()
+
+/** Puts [map] on [BASE_TILES], styled for the theme. Cheap enough to call on every update. */
+fun styleBaseMap(map: MapView, isDark: Boolean) {
+    // Setting the source unconditionally triggers a full tile reload — a visible flash.
+    if (map.tileProvider.tileSource !== BASE_TILES) map.setTileSource(BASE_TILES)
+    if (styledDark[map] == isDark) return
+    styledDark[map] = isDark
+    map.overlayManager.tilesOverlay.setColorFilter(if (isDark) DARK_TILE_FILTER else LIGHT_TILE_FILTER)
+    map.overlays.filterIsInstance<CopyrightOverlay>().forEach {
+        it.setTextColor(if (isDark) 0xB3FFFFFF.toInt() else 0xB3000000.toInt())
+    }
+    map.invalidate()
+}
 
 /**
  * osmdroid was being given none of the three things it asks for: a tile cache it can find on disk,
@@ -88,6 +141,9 @@ fun rememberMapView(onCreate: MapView.() -> Unit = {}): MapView {
         MapView(context).apply {
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+            // OSM's licence requires attribution visible on the map itself. The text is the tile
+            // source's own copyright notice; styleBaseMap colours it for the theme.
+            overlays.add(CopyrightOverlay(context).apply { setTextSize(9) })
             onCreate()
         }
     }
@@ -372,13 +428,15 @@ fun busIconKey(route: String, fillArgb: Int, textArgb: Int, bearing: Float?): St
 /**
  * osmdroid draws overlays in list order and every diff appends, so without this the z-order
  * depends on whatever sequence things happened to be added in — lines could end up over the
- * buses one frame and under them the next. Lines, then vehicles, then stops on top.
+ * buses one frame and under them the next. Lines, then vehicles, then stops, then the
+ * attribution, which nothing may cover.
  */
 fun applyOverlayOrder(map: MapView) {
     val rank = { o: Overlay ->
         when {
             o is Polyline -> 0
             o is Marker && o.id == STOP_MARKER_TAG -> 2
+            o is CopyrightOverlay -> 3
             else -> 1
         }
     }

@@ -1,4 +1,4 @@
-Updated: 20 August 2026
+Updated: 9 October 2026
 
 Iompar shows live bus departure times in Dublin. It uses open transport data. This policy tells you what the app does with your data.
 
@@ -45,9 +45,11 @@ In Settings, you can select a different backend server. Then the app sends the d
 
 ## Maps
 
-CartoDB supplies the map images. The images use OpenStreetMap data.
+The OpenStreetMap Foundation supplies the map images. The images use OpenStreetMap data.
 
-When you open a map, your device gets the necessary map squares from the CartoDB servers. These requests contain your IP address. CartoDB can see which part of the map you look at. The app cannot show maps without CartoDB.
+When you open a map, your device gets the necessary map squares from the OpenStreetMap servers. These requests contain your IP address and the name and version of the app. The OpenStreetMap Foundation can see which part of the map you look at. The privacy policy of the OpenStreetMap Foundation applies to these requests: https://osmfoundation.org/wiki/Privacy_Policy
+
+The app keeps map squares on your device, so it does not get the same squares again each time. The app cannot show maps without the OpenStreetMap servers.
 
 ## Server on your device
 

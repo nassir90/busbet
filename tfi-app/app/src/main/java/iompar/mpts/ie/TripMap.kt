@@ -40,16 +40,15 @@ fun TripMap(
     val tint = primary.copy(alpha = 0.14f)
     val lineArgb = primary.toArgb()
     val onPinArgb = MaterialTheme.colorScheme.onPrimary.toArgb()
-    val tiles = if (isDark) CARTO_DARK else CARTO_LIGHT
 
     // See StopMap: remembered so returning to the app does not rebuild the map from a cold
     // tile cache (TFI-115).
-    val mapView = rememberMapView { setTileSource(tiles) }
+    val mapView = rememberMapView { styleBaseMap(this, isDark) }
 
     AndroidView(
         factory = { mapView },
         update = { map ->
-            if (map.tileProvider.tileSource !== tiles) map.setTileSource(tiles)
+            styleBaseMap(map, isDark)
             if (shape.size < 2) return@AndroidView
 
             val density = map.context.resources.displayMetrics.density

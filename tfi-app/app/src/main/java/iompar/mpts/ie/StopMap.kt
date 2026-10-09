@@ -16,7 +16,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -51,12 +50,11 @@ fun StopMap(
     val busFill = { v: VehiclePosition ->
         if (runStateOf(v, nowMins) == RunState.RUNNING) pinArgb else dimmed(pinArgb)
     }
-    val tiles   = if (isDark) CARTO_DARK else CARTO_LIGHT
 
     // Remembered rather than built in the factory, so backgrounding the app and returning does not
     // hand back a cold MapView with an empty tile cache (TFI-115).
     val mapView = rememberMapView {
-        setTileSource(tiles)
+        styleBaseMap(this, isDark)
         controller.setZoom(15.0)
         controller.setCenter(GeoPoint(lat, lon))
 
@@ -77,11 +75,7 @@ fun StopMap(
         update = { map ->
             val density = map.context.resources.displayMetrics.density
 
-            // Only swap the tile source when the style actually changed; calling this
-            // unconditionally triggers a full tile reload (a visible flash) every update.
-            if (map.tileProvider.tileSource !== tiles) {
-                map.setTileSource(tiles)
-            }
+            styleBaseMap(map, isDark)
 
             // Stop marker: move it in place rather than rebuilding the drawable each frame.
             map.overlays

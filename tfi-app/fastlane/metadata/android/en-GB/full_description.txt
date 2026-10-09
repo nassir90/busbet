@@ -14,7 +14,7 @@ Follow a route in both directions and see every stop along it. Open a trip to wa
 
 MAPS
 
-Stop and trip maps show where the bus is now and where it is heading. Map imagery is served by CartoDB, drawn from OpenStreetMap data.
+Stop and trip maps show where the bus is now and where it is heading. Map imagery is served by OpenStreetMap.
 
 FAVOURITES
 
