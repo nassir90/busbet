@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { createReportsStore, type ReportInput } from './src/reports.js';
 import { deriveActual, isReportKind, kindHasTime } from './src/derive.js';
 import { LATEST_VERSION } from './src/migrations.js';
+import { createFeedbackStore, FEEDBACK_MAX_BODY_BYTES } from './src/feedback.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -34,8 +35,14 @@ const REPORTS_DB  = process.env.REPORTS_DB ?? './data/reports.db';
 // Upstream read-only GTFS API — this service is a pure consumer of it for enrichment.
 const GTFSR_BASE  = (process.env.GTFSR_BASE_URL ?? 'http://127.0.0.1:8110').replace(/\/$/, '');
 
+// App feedback: JSON records plus screenshots, in a folder capped at FEEDBACK_MAX_BYTES in total
+// (500 MiB unless configured). See src/feedback.ts.
+const FEEDBACK_DIR       = process.env.FEEDBACK_DIR ?? './data/feedback';
+const FEEDBACK_MAX_BYTES = Number(process.env.FEEDBACK_MAX_BYTES ?? 500 * 1024 * 1024);
+
 mkdirSync(dirname(REPORTS_DB), { recursive: true });
 const reports = createReportsStore(REPORTS_DB);
+const feedback = createFeedbackStore(FEEDBACK_DIR, FEEDBACK_MAX_BYTES);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,11 +53,27 @@ function respond(res: http.ServerResponse, status: number, body: unknown) {
 	res.end(JSON.stringify(body));
 }
 
-function readBody(req: http.IncomingMessage): Promise<string> {
+class BodyTooLarge extends Error {}
+
+/**
+ * The request body as text, refused past [limit] bytes. Oversized bodies used to be cut off with
+ * req.destroy() alone, which never settled this promise: the handler hung and the client waited
+ * out its own timeout instead of hearing why.
+ */
+function readBody(req: http.IncomingMessage, limit = 1_000_000): Promise<string> {
 	return new Promise((resolve, reject) => {
-		let data = '';
-		req.on('data', (c) => { data += c; if (data.length > 1_000_000) req.destroy(); });
-		req.on('end', () => resolve(data));
+		const chunks: Buffer[] = [];
+		let size = 0;
+		req.on('data', (c: Buffer) => {
+			size += c.length;
+			if (size > limit) {
+				reject(new BodyTooLarge());
+				req.destroy();
+				return;
+			}
+			chunks.push(c);
+		});
+		req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
 		req.on('error', reject);
 	});
 }
@@ -139,11 +162,27 @@ const server = http.createServer(async (req, res) => {
 		if (req.method === 'POST' && path === '/report') {
 			let body: any;
 			try { body = JSON.parse(await readBody(req) || '{}'); }
-			catch { return respond(res, 400, { message: 'invalid JSON' }); }
+			catch (err) {
+				if (err instanceof BodyTooLarge) return respond(res, 413, { message: 'body too large' });
+				return respond(res, 400, { message: 'invalid JSON' });
+			}
 			const built = await buildReport(body);
 			if ('error' in built) return respond(res, 400, { message: built.error });
 			const id = await reports.insert(built);
 			return respond(res, 201, { ok: true, id, ...built });
+		}
+
+		// Feedback from the app's feedback screen. Stored, never served back: see src/feedback.ts.
+		if (req.method === 'POST' && path === '/feedback') {
+			let body: unknown;
+			try { body = JSON.parse(await readBody(req, FEEDBACK_MAX_BODY_BYTES) || '{}'); }
+			catch (err) {
+				if (err instanceof BodyTooLarge) return respond(res, 413, { message: 'feedback too large' });
+				return respond(res, 400, { message: 'invalid JSON' });
+			}
+			const result = feedback.save(body);
+			if ('error' in result) return respond(res, result.status, { message: result.error });
+			return respond(res, 201, { ok: true, id: result.id });
 		}
 
 		const undoReportId = req.method === 'POST' ? parseReportId(path) : null;
@@ -175,6 +214,7 @@ server.listen(PORT, HOST, () => {
 	console.log(`tfi-tenant-api listening on ${HOST}:${PORT}`);
 	console.log(`  reports db: ${REPORTS_DB} (schema v${LATEST_VERSION})`);
 	console.log(`  gtfsr:      ${GTFSR_BASE}`);
+	console.log(`  feedback:   ${FEEDBACK_DIR} (${(feedback.usedBytes / 1048576).toFixed(1)} of ${(FEEDBACK_MAX_BYTES / 1048576).toFixed(0)} MiB used)`);
 	// Migrate up front so a schema problem is visible in the deploy log rather than
 	// only in whichever unlucky user's report happens to be the first write.
 	reports.ready().catch((err) => console.error('[tenant-api] migration failed:', err));

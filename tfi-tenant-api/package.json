@@ -9,7 +9,8 @@
     "simulate": "tsx scripts/simulate-reports.ts",
     "evaluate": "tsx scripts/evaluate-reports.ts",
     "verify-migration": "tsx scripts/verify-migration.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0"
