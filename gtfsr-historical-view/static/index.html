@@ -259,6 +259,9 @@
   .time-tick:hover { color: var(--text); }
 
   .leaflet-container { background: var(--bg); }
+  /* OSM has one style; both themes are filtered from it, matching the Android app's tile filters. */
+  .basemap-light { filter: saturate(0.2) contrast(0.9) brightness(1.06); }
+  .basemap-dark  { filter: invert(1) hue-rotate(180deg) saturate(0.2) brightness(0.72); }
   .leaflet-tooltip {
     background: rgba(20,20,20,0.95) !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
@@ -500,18 +503,21 @@ function App() {
     markerLayerRef.current = L.layerGroup().addTo(map);
     trailLayerRef.current = L.layerGroup().addTo(map);
     updateTiles(map, dark);
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileRef.current = null; };
   }, [data]);
 
+  // OpenStreetMap tiles in both themes, styled by CSS class. CARTO stopped serving keyless
+  // tiles in September 2026, and with one tile set a theme switch no longer refetches the map.
   function updateTiles(map, isDark) {
-    if (tileRef.current) tileRef.current.remove();
-    const url = isDark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-    tileRef.current = L.tileLayer(url, {
-      attribution: '© CartoDB © OpenStreetMap contributors',
-      maxZoom: 19, subdomains: 'abcd',
-    }).addTo(map);
+    if (!tileRef.current) {
+      tileRef.current = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }).addTo(map);
+    }
+    const pane = tileRef.current.getContainer();
+    pane.classList.toggle('basemap-dark', isDark);
+    pane.classList.toggle('basemap-light', !isDark);
   }
   useEffect(() => { if (mapRef.current) updateTiles(mapRef.current, dark); }, [dark]);
 
