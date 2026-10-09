@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
@@ -55,6 +56,7 @@ fun SettingsScreen(
     serverSettingsStore: ServerSettingsStore,
     backendConfigStore: BackendConfigStore,
     onBack: () -> Unit,
+    onOpenFeedback: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -241,6 +243,25 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp)
                 .fillMaxSize(),
         ) {
+            // ── Feedback ─────────────────────────────────────────────────────
+            // First, above everything else: the one thing here that isn't a preference.
+            Button(
+                onClick = onOpenFeedback,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            ) {
+                Icon(Icons.Filled.Campaign, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Send feedback")
+            }
+            Text(
+                "Say what should change. You can attach a screenshot of any screen in the app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
+            )
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
             // ── Theme ────────────────────────────────────────────────────────
             SectionHeader("Theme")
             allPalettes.forEach { p ->

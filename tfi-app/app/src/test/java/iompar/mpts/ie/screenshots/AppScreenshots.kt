@@ -6,7 +6,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import com.github.takahirom.roborazzi.captureRoboImage
 import iompar.mpts.ie.Api
 import iompar.mpts.ie.AppClock
@@ -124,6 +128,34 @@ abstract class AppScreenshots(private val theme: String) {
         listOf(Screen.FeatureRequest(FeatureRequestDraft("Stop 7392", "{\"screen\":\"StopBoard\"}", null))),
     )
 
+    /**
+     * Feedback from Settings, end to end: the screen with nothing attached, out to the main menu
+     * to pick a screen, and back with that screen attached and the typed text intact.
+     */
+    @Test fun feedbackFlow() {
+        show(
+            listOf(
+                Screen.Settings,
+                Screen.FeatureRequest(
+                    FeatureRequestDraft(screen = "General feedback", context = "{}", screenshot = null, title = "Feedback")
+                ),
+            ),
+        )
+        compose.onNodeWithText("What should change?").performTextInput("The departures list should show platform numbers.")
+        settle()
+        capture("10-feedback")
+
+        compose.onNodeWithText("Tap to attach a screenshot").performClick()
+        settle()
+        capture("11-feedback-pick-screen")
+
+        compose.onNodeWithText("Aston Quay", substring = true).performClick()
+        settle()
+        compose.onNodeWithContentDescription("Attach this screen to your feedback").performClick()
+        settle()
+        capture("12-feedback-attached")
+    }
+
     /** A departure with live data, so the trip and route screens open on something running. */
     private fun liveDeparture(code: String): Departure {
         val board = runCatching { fixtures.recordedDepartures(code) }.getOrNull()
@@ -136,6 +168,11 @@ abstract class AppScreenshots(private val theme: String) {
     }
 
     private fun render(name: String, stack: List<Screen> = emptyList(), page: Int = 0) {
+        show(stack, page)
+        capture(name)
+    }
+
+    private fun show(stack: List<Screen> = emptyList(), page: Int = 0) {
         compose.setContent {
             CompositionLocalProvider(LocalMapTileProvider provides { CachedTileProvider(it) }) {
                 AppRoot(
@@ -147,6 +184,9 @@ abstract class AppScreenshots(private val theme: String) {
             }
         }
         settle()
+    }
+
+    private fun capture(name: String) {
         compose.onRoot().captureRoboImage("build/screenshots/$theme/$name.png")
     }
 

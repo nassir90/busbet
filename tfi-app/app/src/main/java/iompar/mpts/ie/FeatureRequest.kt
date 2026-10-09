@@ -3,11 +3,13 @@ package iompar.mpts.ie
 import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.view.PixelCopy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -20,6 +22,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.time.Instant
@@ -137,6 +140,30 @@ class FeatureRequestStore(context: Context) {
         return request
     }
 
+    /**
+     * [request] as it is sent to the backend. The screenshot goes as JPEG: the annotated PNG of a
+     * full phone screen runs to a megabyte or more, which on mobile data can outlast OkHttp's write
+     * timeout; at quality 85 it is a few hundred kilobytes and the boxes stay legible.
+     */
+    fun uploadOf(request: FeatureRequest): FeedbackUpload {
+        val jpeg = screenshotFile(request.id)?.let { png ->
+            BitmapFactory.decodeFile(png.path)?.let { bitmap ->
+                ByteArrayOutputStream().use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                    Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                }
+            }
+        }
+        return FeedbackUpload(
+            screen = request.screen,
+            context = request.context,
+            description = request.description,
+            boxes = request.boxes,
+            appVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            screenshotBase64 = jpeg,
+        )
+    }
+
     fun delete(id: String) {
         if (!isSafeId(id)) return
         File(dir, "$id.json").delete()
@@ -164,6 +191,10 @@ class FeatureRequestDraft(
     val screen: String,
     val context: String,
     val screenshot: Bitmap?,
+    /** The screen's title: "Feature request" from the hold gesture, "Feedback" from Settings. */
+    val title: String = "Feature request",
+    /** Text already typed, carried across a trip out into the app to attach a screenshot. */
+    val description: String = "",
 )
 
 /**

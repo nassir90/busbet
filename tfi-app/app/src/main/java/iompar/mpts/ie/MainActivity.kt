@@ -9,6 +9,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -27,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +48,19 @@ data class WidgetStopRequest(val stopCode: String, val seq: Int)
 
 /** A request (from a stop screen's notification bell) to open the create sheet pre-filled with a stop. */
 data class NotifStopRequest(val code: String, val name: String, val seq: Int)
+
+/**
+ * Feedback waiting on a screenshot: the user left the feedback screen to find the screen to
+ * attach. Carries what the feedback screen needs to be rebuilt, since that screen is gone from the
+ * stack while they look.
+ */
+private class FeedbackAttach(
+    val title: String,
+    val description: String,
+    /** The draft's own screen and context, restored if they back out without attaching one. */
+    val screen: String,
+    val context: String,
+)
 
 class MainActivity : ComponentActivity() {
     private var widgetRequestSeq = 0
@@ -163,6 +187,12 @@ fun App(
 
     val stack = remember { mutableStateListOf<Screen>().apply { addAll(initialStack) } }
 
+    // Set while the user is out in the app picking a screen to attach to their feedback; the
+    // loudspeaker button shows for as long as it is.
+    var feedbackAttach by remember { mutableStateOf<FeedbackAttach?>(null) }
+    // True for the frames in which the button hides itself so it isn't in its own screenshot.
+    var capturingAttach by remember { mutableStateOf(false) }
+
     // Only the top screen is composed (see below), so each one's rememberSaveable state is parked
     // here while it's off screen and restored when it comes back.
     val stateHolder = rememberSaveableStateHolder()
@@ -210,6 +240,17 @@ fun App(
     LaunchedEffect(currentScreen) { Telemetry.trackScreen(currentScreen) }
 
     BackHandler(enabled = stack.isNotEmpty()) { pop() }
+    // Back at the main menu while picking a screen: give up on attaching and go back to the
+    // feedback, text intact. Registered after the handler above, so it wins when both apply.
+    BackHandler(enabled = feedbackAttach != null && stack.isEmpty() && pagerState.currentPage == 0) {
+        val attach = feedbackAttach ?: return@BackHandler
+        feedbackAttach = null
+        stack.add(
+            Screen.FeatureRequest(
+                FeatureRequestDraft(attach.screen, attach.context, null, attach.title, attach.description)
+            )
+        )
+    }
     BackHandler(enabled = stack.isEmpty() && pagerState.currentPage == 1) {
         scope.launch { pagerState.animateScrollToPage(0) }
     }
@@ -244,11 +285,57 @@ fun App(
         if (activity != null) captureWindow(activity) { push(it) } else push(null)
     }
 
+    // Feedback from Settings starts with no screenshot; the screen offers to attach one.
+    val openFeedback = {
+        stack.add(
+            Screen.FeatureRequest(
+                FeatureRequestDraft(screen = "General feedback", context = "{}", screenshot = null, title = "Feedback")
+            )
+        )
+        Unit
+    }
+
+    // Out to the main menu to pick a screen. The feedback screen leaves the stack with everything
+    // else; what was typed rides along in feedbackAttach and comes back with the screenshot.
+    val startAttach: (FeatureRequestDraft, String) -> Unit = { draft, description ->
+        feedbackAttach = FeedbackAttach(draft.title, description, draft.screen, draft.context)
+        while (stack.isNotEmpty()) pop()
+        scope.launch { if (pagerState.currentPage != 0) pagerState.scrollToPage(0) }
+    }
+
+    // The loudspeaker button: photographs whatever is on screen now and goes back to the feedback.
+    val attachCurrentScreen: () -> Unit = attach@{
+        val attach = feedbackAttach ?: return@attach
+        if (capturingAttach) return@attach
+        capturingAttach = true
+        val screen = if (onNotificationsPage) null else stack.lastOrNull()
+        val title = describeScreen(screen, onNotificationsPage)
+        val contextJson = screenContextJson(screen, onNotificationsPage)
+        val fromNotifications = onNotificationsPage
+        scope.launch {
+            // Two frames: one to drop the button from the composition, one for that to be drawn.
+            withFrameNanos { }
+            withFrameNanos { }
+            val finish = { bitmap: android.graphics.Bitmap? ->
+                feedbackAttach = null
+                capturingAttach = false
+                stack.add(
+                    Screen.FeatureRequest(
+                        FeatureRequestDraft(title, contextJson, bitmap, attach.title, attach.description)
+                    )
+                )
+                if (fromNotifications) scope.launch { pagerState.animateScrollToPage(0) }
+                Unit
+            }
+            if (activity != null) captureWindow(activity) { finish(it) } else finish(null)
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .holdTopBarForFeatureRequest(
-                enabled = stack.lastOrNull() !is Screen.FeatureRequest,
+                enabled = stack.lastOrNull() !is Screen.FeatureRequest && feedbackAttach == null,
                 onTrigger = openFeatureRequest,
             ),
     ) {
@@ -308,6 +395,7 @@ fun App(
                     serverSettingsStore = serverSettingsStore,
                     backendConfigStore = backendConfigStore,
                     onBack = { pop() },
+                    onOpenFeedback = openFeedback,
                 )
                 is Screen.StopBoard -> StopScreen(
                     code = top.code,
@@ -358,10 +446,29 @@ fun App(
                 is Screen.FeatureRequest -> FeatureRequestScreen(
                     draft = top.draft,
                     onBack = { pop() },
+                    onAttachScreenshot = { description -> startAttach(top.draft, description) },
                 )
             }
         }
     }
     } // end HorizontalPager
+
+    if (feedbackAttach != null && !capturingAttach) {
+        FloatingActionButton(
+            onClick = attachCurrentScreen,
+            shape = CircleShape,
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                // Clear of the screen's rounded corners, and on the notifications page clear of
+                // its own + button, which sits in the same corner.
+                .padding(end = 24.dp, bottom = if (onNotificationsPage) 104.dp else 24.dp)
+                .size(48.dp),
+        ) {
+            Icon(Icons.Filled.Campaign, contentDescription = "Attach this screen to your feedback")
+        }
+    }
     } // end feature-request gesture Box
 }

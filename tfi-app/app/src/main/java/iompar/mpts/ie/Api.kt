@@ -211,7 +211,28 @@ interface TenantApi {
 
     @POST("reports/{id}/undo")
     suspend fun undoReport(@Path("id") id: Long): UndoReportResponse
+
+    /** Stored on the server as a record plus its screenshot; there is no way to read it back. */
+    @POST("feedback")
+    suspend fun feedback(@Body body: FeedbackUpload): FeedbackResponse
 }
+
+/** One piece of feedback as it is sent. See tfi-tenant-api/src/feedback.ts for the limits. */
+data class FeedbackUpload(
+    val screen: String,
+    /** The screen's machine-readable context, as JSON text. */
+    val context: String,
+    val description: String,
+    val boxes: List<FeatureRequestBox>,
+    @SerializedName("app_version") val appVersion: String,
+    /** The annotated screenshot, JPEG as base64, or null when none was attached. */
+    @SerializedName("screenshot_base64") val screenshotBase64: String?,
+)
+
+data class FeedbackResponse(
+    val ok: Boolean,
+    val id: String,
+)
 
 data class ArrivalReport(
     @SerializedName("trip_id") val tripId: String,

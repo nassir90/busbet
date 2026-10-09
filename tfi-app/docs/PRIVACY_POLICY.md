@@ -51,6 +51,16 @@ When you open a map, your device gets the necessary map squares from the OpenStr
 
 The app keeps map squares on your device, so it does not get the same squares again each time. The app cannot show maps without the OpenStreetMap servers.
 
+## Feedback
+
+You can send feedback from Settings, or by holding the top bar of a screen for five seconds. The app sends feedback only when you tap "Send feedback".
+
+Feedback contains what you write, the screenshot that you attach, a description of the screen that the screenshot shows, and the version of the app. A screenshot and a screen description can show your favourite stops, and the stops and routes that you looked at.
+
+The app sends feedback to the backend servers. The servers keep the feedback so that we can read it and improve the app. The servers do not keep your IP address with the feedback. To have your feedback deleted, send an email to the address under Contact.
+
+The app also keeps a copy of your feedback on your device. Uninstalling the app removes this copy.
+
 ## Server on your device
 
 The app can operate a server on your device. Tools on your network can then read and change the data of the app.

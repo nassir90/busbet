@@ -1,6 +1,7 @@
 package iompar.mpts.ie
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
@@ -94,17 +96,37 @@ private fun renameRefs(text: String, old: String, new: String): String =
  * was rendering — so the request can be acted on without a second round of "which stop was that?".
  */
 @OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Filing feedback: the screenshot to annotate, what should change, and the screen's context.
+ *
+ * Saving keeps a copy on the phone, as it always has (the share sheet and the on-device API read
+ * it), and sends it to the backend. A copy that couldn't be sent stays put and the screen stays
+ * open, so trying again doesn't save it twice.
+ *
+ * [onAttachScreenshot] is offered when there is no screenshot: it is handed the text typed so far
+ * and is expected to take the user out into the app to pick a screen, and to come back here with
+ * a draft carrying both.
+ */
 @Composable
-fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
+fun FeatureRequestScreen(
+    draft: FeatureRequestDraft,
+    onBack: () -> Unit,
+    onAttachScreenshot: ((description: String) -> Unit)? = null,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember { FeatureRequestStore(context) }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var description by remember { mutableStateOf(TextFieldValue("")) }
+    var description by remember {
+        mutableStateOf(TextFieldValue(draft.description, TextRange(draft.description.length)))
+    }
     var boxes by remember { mutableStateOf(listOf<FeatureRequestBox>()) }
     var showContext by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    // The local copy, once made. Kept so a failed send can be retried without saving it again.
+    var saved by remember { mutableStateOf<FeatureRequest?>(null) }
+    var sendFailed by remember { mutableStateOf(false) }
 
     // Which box is in move mode, by its stable index. Null is the ordinary drawing state.
     var selected by remember { mutableStateOf<Int?>(null) }
@@ -126,12 +148,15 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
         )
     }
 
-    /** Saves, then hands [FeatureRequest] to whatever the user picks: mail, chat, a note to self. */
-    fun saveThenShare(share: Boolean) {
+    /**
+     * Saves on the phone (once), sends to the backend, and with [share] also hands it to whatever
+     * the user picks: mail, chat, a note to self.
+     */
+    fun saveAndSend(share: Boolean) {
         if (saving) return
         saving = true
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
+            val local = saved ?: withContext(Dispatchers.IO) {
                 runCatching {
                     store.save(
                         screen = draft.screen,
@@ -141,19 +166,24 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
                         screenshot = draft.screenshot,
                     )
                 }
-            }
-            saving = false
-            val saved = result.getOrNull()
-            if (saved == null) {
-                snackbarHostState.showSnackbar("Couldn't save: ${result.exceptionOrNull()?.message ?: "error"}")
+            }.getOrElse { e ->
+                saving = false
+                snackbarHostState.showSnackbar("Couldn't save: ${e.message ?: "error"}")
                 return@launch
             }
+            saved = local
+
+            val sent = withContext(Dispatchers.IO) {
+                runCatching { Api.tenant().feedback(store.uploadOf(local)) }
+            }
+            saving = false
+
             if (share) {
-                val png = store.screenshotFile(saved.id)
+                val png = store.screenshotFile(local.id)
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = if (png != null) "image/png" else "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Feature request — ${saved.screen}")
-                    putExtra(Intent.EXTRA_TEXT, shareBody(saved))
+                    putExtra(Intent.EXTRA_SUBJECT, "${draft.title} — ${local.screen}")
+                    putExtra(Intent.EXTRA_TEXT, shareBody(local))
                     if (png != null) {
                         putExtra(
                             Intent.EXTRA_STREAM,
@@ -162,9 +192,18 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                 }
-                context.startActivity(Intent.createChooser(intent, "Send feature request"))
+                context.startActivity(Intent.createChooser(intent, "Send ${draft.title.lowercase()}"))
+                onBack()
+                return@launch
             }
-            onBack()
+
+            if (sent.isSuccess) {
+                Toast.makeText(context, "Feedback sent", Toast.LENGTH_SHORT).show()
+                onBack()
+            } else {
+                sendFailed = true
+                snackbarHostState.showSnackbar("Saved on this phone, but couldn't send it. Check your connection and try again.")
+            }
         }
     }
 
@@ -172,7 +211,7 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Feature request") },
+                title = { Text(draft.title) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -198,7 +237,7 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
                             )
                         }
                     }
-                    IconButton(onClick = { saveThenShare(share = true) }, enabled = !saving) {
+                    IconButton(onClick = { saveAndSend(share = true) }, enabled = !saving) {
                         Icon(
                             Icons.Filled.Share,
                             contentDescription = "Save and share",
@@ -224,6 +263,7 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
 
             Annotator(
                 draft = draft,
+                onAttach = onAttachScreenshot?.let { attach -> { attach(description.text) } },
                 boxes = boxes,
                 selected = selected,
                 // Indices come from a counter, not the list length: after a deletion, size + 1
@@ -260,7 +300,7 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
             ) {
                 if (selected != null) {
                     Bin(active = overBin)
-                } else {
+                } else if (draft.screenshot != null) {
                     Text(
                         if (boxes.isEmpty()) "Drag on the screenshot to box a detail."
                         else "Tap a number to reference it. Hold a box to move it.",
@@ -298,10 +338,18 @@ fun FeatureRequestScreen(draft: FeatureRequestDraft, onBack: () -> Unit) {
             }
 
             Button(
-                onClick = { saveThenShare(share = false) },
+                onClick = { saveAndSend(share = false) },
                 enabled = !saving,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).height(52.dp),
-            ) { Text("Save request") }
+            ) {
+                Text(
+                    when {
+                        saving -> "Sending…"
+                        sendFailed -> "Try sending again"
+                        else -> "Send feedback"
+                    }
+                )
+            }
         }
     }
 
@@ -391,6 +439,8 @@ private fun RenameDialog(
 @Composable
 private fun Annotator(
     draft: FeatureRequestDraft,
+    /** Offered when there's no screenshot: starts picking one from elsewhere in the app. */
+    onAttach: (() -> Unit)?,
     boxes: List<FeatureRequestBox>,
     selected: Int?,
     onAddBox: (FeatureRequestBox) -> Unit,
@@ -404,8 +454,35 @@ private fun Annotator(
 ) {
     val bitmap = draft.screenshot
     if (bitmap == null) {
-        Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-            Text("No screenshot was captured", style = MaterialTheme.typography.bodySmall)
+        if (onAttach == null) {
+            Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                Text("No screenshot was captured", style = MaterialTheme.typography.bodySmall)
+            }
+        } else {
+            Column(
+                modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(onClick = onAttach)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.AddPhotoAlternate,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(40.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Tap to attach a screenshot", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Go to any screen in the app, then tap the loudspeaker button to attach it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
         }
         return
     }
