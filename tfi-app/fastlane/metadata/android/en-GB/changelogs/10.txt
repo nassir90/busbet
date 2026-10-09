@@ -1,0 +1,2 @@
+Maps now come from OpenStreetMap. The old map provider stopped serving maps without a key.
+The app connects straight away on Wi-Fi where IPv6 is broken, instead of taking several seconds.
