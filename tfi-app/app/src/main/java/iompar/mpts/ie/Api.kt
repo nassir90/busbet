@@ -265,7 +265,21 @@ object Api {
                 // concurrent requests per host is the app's real ceiling, not the 64 global one.
                 dispatcher(okhttp3.Dispatcher().apply { maxRequestsPerHost = 10 })
             }
+            .dns(Ipv4FirstDns)
             .build()
+    }
+
+    /**
+     * IPv4 before IPv6. OkHttp 4 tries a host's addresses one at a time, moving on only when a
+     * connect fails, and Android lists the AAAA records first. On a network that hands out IPv6
+     * but can't route it — the home Wi-Fi this was measured on, where each IPv6 attempt failed
+     * after ~1s — every fresh connection waited out both dead addresses first: an 8–12s cold
+     * open against a server answering in 50ms. IPv6 is still tried after IPv4, so an IPv6-only
+     * network keeps working.
+     */
+    private object Ipv4FirstDns : okhttp3.Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> =
+            okhttp3.Dns.SYSTEM.lookup(hostname).sortedBy { it is java.net.Inet6Address }
     }
 
     private fun <T> build(baseUrl: String, api: Class<T>): T =
