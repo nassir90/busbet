@@ -253,7 +253,7 @@ fun SettingsScreen(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(
+            Button(
                 onClick = {
                     val base = resolvePalette(selectedId, customPalettes)
                     editing = duplicatePalette(base, "My palette")
@@ -426,7 +426,7 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
+                Button(
                     onClick = { exportLauncher.launch(defaultConfigFileName()) },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -434,7 +434,7 @@ fun SettingsScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Export")
                 }
-                OutlinedButton(
+                Button(
                     onClick = { importLauncher.launch(arrayOf("application/json")) },
                     modifier = Modifier.weight(1f),
                 ) {
