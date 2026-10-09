@@ -253,12 +253,7 @@ fun SettingsScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("Send feedback")
             }
-            Text(
-                "Say what should change. You can attach a screenshot of any screen in the app.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
-            )
+            Spacer(Modifier.height(16.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
