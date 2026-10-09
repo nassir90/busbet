@@ -10,12 +10,14 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.MapTileProviderBase
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.views.CustomZoomButtonsController
@@ -113,6 +115,14 @@ fun styleBaseMap(map: MapView, isDark: Boolean) {
  */
 private var osmdroidConfigured = false
 
+/**
+ * Where a map's tiles come from, when something other than osmdroid's own downloader should
+ * decide. Null in the app. Screenshot tests supply a provider that answers synchronously from a
+ * local tile cache: osmdroid's downloader checks for connectivity first, and on a PC under
+ * Robolectric there is none, so every map rendered as the grey loading grid.
+ */
+val LocalMapTileProvider = staticCompositionLocalOf<((Context) -> MapTileProviderBase)?> { null }
+
 private fun configureOsmdroid(context: Context) {
     if (osmdroidConfigured) return
     val ctx = context.applicationContext
@@ -136,9 +146,11 @@ private fun configureOsmdroid(context: Context) {
 @Composable
 fun rememberMapView(onCreate: MapView.() -> Unit = {}): MapView {
     val context = LocalContext.current
+    val tileProvider = LocalMapTileProvider.current
     val map = remember {
         configureOsmdroid(context)
-        MapView(context).apply {
+        val view = tileProvider?.let { MapView(context, it(context)) } ?: MapView(context)
+        view.apply {
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             // OSM's licence requires attribution visible on the map itself. The text is the tile

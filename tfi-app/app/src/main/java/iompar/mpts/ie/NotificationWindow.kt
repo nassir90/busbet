@@ -57,7 +57,7 @@ fun NotificationWindow.nextStartAfter(from: LocalDateTime): LocalDateTime? {
  * One-line answer to "is this thing on?", for the window editor. Written for a right-aligned label
  * beside the Time heading, so it stays short.
  */
-fun NotificationWindow.statusLabel(now: LocalDateTime = LocalDateTime.now()): String {
+fun NotificationWindow.statusLabel(now: LocalDateTime = LocalDateTime.now(AppClock.clock)): String {
     if (!enabled) return "Disabled"
     if (days.isEmpty()) return "No days selected"
     if (endMinute <= startMinute) return "End is not after start"

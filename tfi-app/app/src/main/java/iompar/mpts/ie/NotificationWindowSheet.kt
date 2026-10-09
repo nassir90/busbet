@@ -76,11 +76,11 @@ fun NotificationWindowSheet(
 
     // Re-read the clock on each minute boundary so "Active in 3h 20m" counts down while the sheet
     // is open, and flips to "Currently active" the moment the window opens, without a reopen.
-    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    var now by remember { mutableStateOf(LocalDateTime.now(AppClock.clock)) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(60_000L - (System.currentTimeMillis() % 60_000L) + 250L)
-            now = LocalDateTime.now()
+            delay(60_000L - (AppClock.millis() % 60_000L) + 250L)
+            now = LocalDateTime.now(AppClock.clock)
         }
     }
 

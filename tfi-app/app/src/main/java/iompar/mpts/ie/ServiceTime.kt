@@ -1,5 +1,6 @@
 package iompar.mpts.ie
 
+import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -23,11 +24,26 @@ import java.time.ZonedDateTime
  */
 val SERVICE_ZONE: ZoneId = ZoneId.of("Europe/Dublin")
 
+/**
+ * Where every screen gets "now".
+ *
+ * The system clock in the app. Screenshot tests pin it to the instant their recorded API answers
+ * are true for, so a board rendered on a PC says "4 mins" for the same bus on every run instead of
+ * counting down to whenever the test happens to execute. Background work (notification workers,
+ * schedulers) still reads the system clock directly: nothing renders it.
+ */
+object AppClock {
+    @Volatile var clock: Clock = Clock.systemDefaultZone()
+
+    fun millis(): Long = clock.millis()
+    fun inZone(zone: ZoneId): Clock = clock.withZone(zone)
+}
+
 /** Wall-clock time in the service zone. */
-fun serviceNow(): LocalTime = LocalTime.now(SERVICE_ZONE)
+fun serviceNow(): LocalTime = LocalTime.now(AppClock.inZone(SERVICE_ZONE))
 
 /** The service date, as GTFS spells it (`yyyyMMdd`). */
-fun serviceToday(): LocalDate = LocalDate.now(SERVICE_ZONE)
+fun serviceToday(): LocalDate = LocalDate.now(AppClock.inZone(SERVICE_ZONE))
 
 /** Minutes since midnight on the service clock, right now. */
 fun serviceNowMinutes(): Int = serviceNow().let { it.hour * 60 + it.minute }

@@ -70,7 +70,7 @@ fun NotificationScreen(
     val scope     = rememberCoroutineScope()
 
     var viewMode    by remember { mutableStateOf(CalendarViewMode.WEEK) }
-    var selectedDay by remember { mutableIntStateOf(LocalDate.now().dayOfWeek.value) }
+    var selectedDay by remember { mutableIntStateOf(LocalDate.now(AppClock.clock).dayOfWeek.value) }
     var editTarget  by remember { mutableStateOf<NotificationWindow?>(null) }
     var showCreate  by remember { mutableStateOf(false) }
     val createDraft = remember { NotificationDraft() }
@@ -240,7 +240,7 @@ private fun DayHeader(
     viewMode: CalendarViewMode,
     onDayClick: (Int) -> Unit,
 ) {
-    val today = LocalDate.now().dayOfWeek.value
+    val today = LocalDate.now(AppClock.clock).dayOfWeek.value
     Row(
         Modifier
             .fillMaxWidth()

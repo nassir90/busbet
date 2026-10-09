@@ -20,8 +20,8 @@ android {
         // Bumped once per ticket implemented, not once per release: Sentry groups events by
         // release, so a version that only moves when someone remembers to move it puts weeks of
         // unrelated builds into one bucket and makes "did that fix land?" unanswerable.
-        versionCode 10
-        versionName "1.9"
+        versionCode 11
+        versionName "1.10"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

@@ -301,6 +301,12 @@ object Api {
     @Volatile private var tenantApi: TenantApi? = null
 
     /**
+     * Answers every read in place of the network when set. Screenshot tests install a replay of
+     * recorded server responses here, so the real screens render real data with no backend.
+     */
+    @Volatile var gtfsOverride: GtfsApi? = null
+
+    /**
      * Read-only GTFS proxy (gtfsr-stop-times).
      *
      * Suspending because resolving the configured URL may have to wait for the first DataStore
@@ -308,6 +314,7 @@ object Api {
      * the config has landed this returns without suspending.
      */
     suspend fun service(): GtfsApi {
+        gtfsOverride?.let { return it }
         val url = BackendConfigHolder.current().urlFor(BackendService.GTFS)
         gtfsApi?.let { if (url == gtfsUrl) return it }
         return synchronized(this) {

@@ -55,21 +55,7 @@ class MainActivity : ComponentActivity() {
         // only be reached from a coroutine, so seeding from it asynchronously meant every cold
         // start painted the default purple and then re-themed. See PaletteCache.
         val seedPalette = PaletteCache.cached(this)
-        setContent {
-            val context = LocalContext.current
-            val paletteStore = remember { PaletteStore(context) }
-            val palette by paletteStore.palette.collectAsState(initial = seedPalette)
-            val dark = isSystemInDarkTheme()
-            // Remembered: building a scheme is ~20 blends and allocations, and neither input
-            // changes on a typical recomposition.
-            val colors = remember(palette, dark) { buildColorScheme(palette, dark) }
-
-            MaterialTheme(colorScheme = colors) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    App(paletteStore = paletteStore, widgetStopRequest = widgetStopRequest)
-                }
-            }
-        }
+        setContent { AppRoot(seedPalette = seedPalette, widgetStopRequest = widgetStopRequest) }
     }
 
     // android:launchMode="singleTop" means a widget tap while the app is already on top
@@ -123,17 +109,59 @@ val Screen.screenName: String
         is Screen.FeatureRequest -> "FeatureRequest"
     }
 
+/**
+ * Everything the activity draws: the user's palette as a theme, then [App].
+ *
+ * Kept out of [MainActivity] so a screenshot test composes exactly what the activity does, from
+ * any starting screen, rather than a hand-assembled approximation of it.
+ */
 @Composable
-fun App(paletteStore: PaletteStore, widgetStopRequest: State<WidgetStopRequest?>) {
+fun AppRoot(
+    seedPalette: AppPalette,
+    widgetStopRequest: State<WidgetStopRequest?>,
+    initialStack: List<Screen> = emptyList(),
+    initialPage: Int = 0,
+) {
+    val context = LocalContext.current
+    val paletteStore = remember { PaletteStore(context) }
+    val palette by paletteStore.palette.collectAsState(initial = seedPalette)
+    val dark = isSystemInDarkTheme()
+    // Remembered: building a scheme is ~20 blends and allocations, and neither input
+    // changes on a typical recomposition.
+    val colors = remember(palette, dark) { buildColorScheme(palette, dark) }
+
+    MaterialTheme(colorScheme = colors) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            App(
+                paletteStore = paletteStore,
+                widgetStopRequest = widgetStopRequest,
+                initialStack = initialStack,
+                initialPage = initialPage,
+            )
+        }
+    }
+}
+
+/**
+ * [initialStack] and [initialPage] place the app on a given screen at first composition; the
+ * activity always starts on Home.
+ */
+@Composable
+fun App(
+    paletteStore: PaletteStore,
+    widgetStopRequest: State<WidgetStopRequest?>,
+    initialStack: List<Screen> = emptyList(),
+    initialPage: Int = 0,
+) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
     val serverSettingsStore = remember { iompar.mpts.ie.server.ServerSettingsStore(context) }
     val backendConfigStore = remember { BackendConfigStore(context) }
     val timeController = remember { TimeController() }
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 2 })
     val scope = rememberCoroutineScope()
 
-    val stack = remember { mutableStateListOf<Screen>() }
+    val stack = remember { mutableStateListOf<Screen>().apply { addAll(initialStack) } }
 
     // Only the top screen is composed (see below), so each one's rememberSaveable state is parked
     // here while it's off screen and restored when it comes back.
