@@ -1,7 +1,10 @@
 package iompar.mpts.ie
 
 import android.content.Context
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
@@ -224,6 +227,30 @@ fun resolvePalette(id: String?, custom: List<AppPalette>): AppPalette =
 fun duplicatePalette(base: AppPalette, name: String): AppPalette =
     base.copy(id = "custom-${UUID.randomUUID()}", name = name, preset = false)
 
+/** Light or dark: follow the phone, or pin one regardless of the phone's setting. */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+/**
+ * Whether the app is drawing dark, as the user's [ThemeMode] decides. Provided by AppRoot; null
+ * outside it (a widget's config screen, say), where the phone's setting is all there is.
+ */
+val LocalDarkTheme = compositionLocalOf<Boolean?> { null }
+
+/** Dark or not, for anything drawn in the app. Use this, not isSystemInDarkTheme(). */
+@Composable
+fun isAppInDarkTheme(): Boolean = LocalDarkTheme.current ?: isSystemInDarkTheme()
+
+@Composable
+fun ThemeMode.isDark(): Boolean = when (this) {
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    ThemeMode.LIGHT -> false
+    ThemeMode.DARK -> true
+}
+
+private fun parseThemeMode(raw: String?): ThemeMode =
+    raw?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
+
+private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
 private val SELECTED_KEY = stringPreferencesKey("palette_selected_v2")
 private val CUSTOM_KEY = stringPreferencesKey("palette_custom_v2")
 private val paletteGson = Gson()
@@ -257,8 +284,17 @@ class PaletteStore(private val context: Context) {
         .distinctUntilChanged()
         .map { (id, customJson) -> resolvePalette(id, parseCustom(customJson)) }
 
+    val themeMode: Flow<ThemeMode> = context.dataStore.data
+        .map { it[THEME_MODE_KEY] }
+        .distinctUntilChanged()
+        .map { parseThemeMode(it) }
+
     suspend fun select(id: String) {
         context.dataStore.edit { it[SELECTED_KEY] = id }
+    }
+
+    suspend fun setThemeMode(mode: ThemeMode) {
+        context.dataStore.edit { it[THEME_MODE_KEY] = mode.name }
     }
 
     /** Insert or replace a custom palette (matched by id) and leave it selected. */
@@ -306,6 +342,7 @@ class PaletteStore(private val context: Context) {
 object PaletteCache {
     private const val FILE = "palette_cache"
     private const val KEY = "resolved_palette"
+    private const val MODE_KEY = "theme_mode"
 
     @Volatile private var prefs: android.content.SharedPreferences? = null
 
@@ -329,7 +366,19 @@ object PaletteCache {
                 }
             }
         }
+        // Mirrored for the same reason: a pinned Dark on a phone set to light would otherwise
+        // open light and then flip.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                PaletteStore(app).themeMode.collect { mode ->
+                    prefs(app).edit().putString(MODE_KEY, mode.name).apply()
+                }
+            }
+        }
     }
+
+    /** Last known theme mode, or SYSTEM if nothing has been mirrored yet. */
+    fun cachedMode(context: Context): ThemeMode = parseThemeMode(prefs(context).getString(MODE_KEY, null))
 
     /** Last known palette, or the default if nothing has been mirrored yet. */
     fun cached(context: Context): AppPalette {

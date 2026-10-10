@@ -7,7 +7,6 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -25,6 +24,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.rememberCoroutineScope
@@ -79,7 +79,10 @@ class MainActivity : ComponentActivity() {
         // only be reached from a coroutine, so seeding from it asynchronously meant every cold
         // start painted the default purple and then re-themed. See PaletteCache.
         val seedPalette = PaletteCache.cached(this)
-        setContent { AppRoot(seedPalette = seedPalette, widgetStopRequest = widgetStopRequest) }
+        val seedThemeMode = PaletteCache.cachedMode(this)
+        setContent {
+            AppRoot(seedPalette = seedPalette, seedThemeMode = seedThemeMode, widgetStopRequest = widgetStopRequest)
+        }
     }
 
     // android:launchMode="singleTop" means a widget tap while the app is already on top
@@ -143,25 +146,29 @@ val Screen.screenName: String
 fun AppRoot(
     seedPalette: AppPalette,
     widgetStopRequest: State<WidgetStopRequest?>,
+    seedThemeMode: ThemeMode = ThemeMode.SYSTEM,
     initialStack: List<Screen> = emptyList(),
     initialPage: Int = 0,
 ) {
     val context = LocalContext.current
     val paletteStore = remember { PaletteStore(context) }
     val palette by paletteStore.palette.collectAsState(initial = seedPalette)
-    val dark = isSystemInDarkTheme()
+    val themeMode by paletteStore.themeMode.collectAsState(initial = seedThemeMode)
+    val dark = themeMode.isDark()
     // Remembered: building a scheme is ~20 blends and allocations, and neither input
     // changes on a typical recomposition.
     val colors = remember(palette, dark) { buildColorScheme(palette, dark) }
 
-    MaterialTheme(colorScheme = colors) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            App(
-                paletteStore = paletteStore,
-                widgetStopRequest = widgetStopRequest,
-                initialStack = initialStack,
-                initialPage = initialPage,
-            )
+    CompositionLocalProvider(LocalDarkTheme provides dark) {
+        MaterialTheme(colorScheme = colors) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                App(
+                    paletteStore = paletteStore,
+                    widgetStopRequest = widgetStopRequest,
+                    initialStack = initialStack,
+                    initialPage = initialPage,
+                )
+            }
         }
     }
 }

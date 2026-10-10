@@ -1,6 +1,5 @@
 package iompar.mpts.ie
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -35,7 +34,7 @@ fun TripMap(
     nowMins: Int,
     modifier: Modifier = Modifier,
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = isAppInDarkTheme()
     val primary = MaterialTheme.colorScheme.primary
     val tint = primary.copy(alpha = 0.14f)
     val lineArgb = primary.toArgb()

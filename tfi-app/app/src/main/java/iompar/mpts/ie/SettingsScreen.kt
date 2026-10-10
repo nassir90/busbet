@@ -69,6 +69,7 @@ fun SettingsScreen(
 
     val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
     val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
+    val themeMode by paletteStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val allPalettes = PRESETS + customPalettes
 
     val configBackupStore = remember(paletteStore, settingsStore) {
@@ -259,6 +260,16 @@ fun SettingsScreen(
 
             // ── Theme ────────────────────────────────────────────────────────
             SectionHeader("Theme")
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                val modes = listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark")
+                modes.forEachIndexed { i, (mode, label) ->
+                    SegmentedButton(
+                        selected = themeMode == mode,
+                        onClick = { scope.launch { paletteStore.setThemeMode(mode) } },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = modes.size),
+                    ) { Text(label) }
+                }
+            }
             allPalettes.forEach { p ->
                 PaletteRow(
                     palette = p,

@@ -5,7 +5,6 @@ import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -37,7 +36,7 @@ fun StopMap(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val isDark  = isSystemInDarkTheme()
+    val isDark  = isAppInDarkTheme()
     val primary = MaterialTheme.colorScheme.primary
     val tint    = primary.copy(alpha = 0.14f)
     val pinArgb = primary.toArgb()
