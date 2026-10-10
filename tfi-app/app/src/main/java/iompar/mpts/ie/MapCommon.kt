@@ -152,6 +152,10 @@ fun rememberMapView(onCreate: MapView.() -> Unit = {}): MapView {
         val view = tileProvider?.let { MapView(context, it(context)) } ?: MapView(context)
         view.apply {
             setMultiTouchControls(true)
+            // osmdroid draws the tiles of floor(zoom), stretched: at 17.9 that is z17 tiles at
+            // 1.87x, which is what "the map goes blurry when I zoom in" was. Snapping to a whole
+            // level when the pinch ends keeps every tile at its native size.
+            setZoomRounding(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             // OSM's licence requires attribution visible on the map itself. The text is the tile
             // source's own copyright notice; styleBaseMap colours it for the theme.

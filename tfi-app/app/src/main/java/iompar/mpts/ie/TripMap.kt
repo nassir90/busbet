@@ -127,7 +127,12 @@ fun TripMap(
                     drawn.maxOf { it.lat }, drawn.maxOf { it.lon },
                     drawn.minOf { it.lat }, drawn.minOf { it.lon },
                 )
-                map.post { map.zoomToBoundingBox(box.increaseByScale(1.15f), false) }
+                map.post {
+                    map.zoomToBoundingBox(box.increaseByScale(1.15f), false)
+                    // Fitting lands between levels; drop to the whole level below so the tiles
+                    // aren't drawn stretched (see rememberMapView) and the route still fits.
+                    map.controller.setZoom(kotlin.math.floor(map.zoomLevelDouble))
+                }
             }
 
             map.invalidate()
