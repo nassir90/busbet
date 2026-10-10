@@ -22,9 +22,13 @@ import iompar.mpts.ie.FavouritesStore
 import iompar.mpts.ie.FeatureRequestDraft
 import iompar.mpts.ie.LocalMapTileProvider
 import iompar.mpts.ie.PaletteCache
+import iompar.mpts.ie.PaletteStore
 import iompar.mpts.ie.SERVICE_ZONE
+import iompar.mpts.ie.ThemeMode
 import iompar.mpts.ie.Screen
 import iompar.mpts.ie.WidgetStopRequest
+import iompar.mpts.ie.dataStore
+import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assume.assumeTrue
@@ -78,7 +82,12 @@ abstract class AppScreenshots(private val theme: String) {
         // Granted, as on a phone where the user said yes; otherwise the notifications page opens
         // under the "Allow exact alarms?" prompt and the screen itself can't be seen.
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
-        runBlocking { FavouritesStore(app).replaceAll(FAVOURITES) }
+        runBlocking {
+            // The app's DataStore is created once per process, not per test, so whatever the last
+            // test set (a pinned theme, a palette, location sorting) would carry into this one.
+            app.dataStore.edit { it.clear() }
+            FavouritesStore(app).replaceAll(FAVOURITES)
+        }
     }
 
     @After fun unpin() {
@@ -105,6 +114,13 @@ abstract class AppScreenshots(private val theme: String) {
     @Test fun settings() = render("06-settings", listOf(Screen.Settings))
 
     @Test fun notifications() = render("07-notifications", page = 1)
+
+    /** Theme pinned against the phone: Dark on a light phone, Light on a dark one. */
+    @Test fun themePinned() {
+        val pinned = if (theme == "light") ThemeMode.DARK else ThemeMode.LIGHT
+        runBlocking { PaletteStore(app).setThemeMode(pinned) }
+        render("13-settings-theme-pinned", listOf(Screen.Settings))
+    }
 
     @Test fun report() {
         val d = liveDeparture("7392")

@@ -24,6 +24,8 @@ import iompar.mpts.ie.SERVICE_ZONE
 import iompar.mpts.ie.Screen
 import iompar.mpts.ie.SettingsStore
 import iompar.mpts.ie.WidgetStopRequest
+import iompar.mpts.ie.dataStore
+import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -65,6 +67,8 @@ class InviteScreenshots {
             Favourite(code = code, name = name, lat = stop.stopLat, lon = stop.stopLon)
         }
         runBlocking {
+            // Settings left by other tests share this process's DataStore; start from nothing.
+            app.dataStore.edit { it.clear() }
             FavouritesStore(app).replaceAll(favourites)
             SettingsStore(app).setLocationAware(true)
             PaletteStore(app).select(GREEN)
