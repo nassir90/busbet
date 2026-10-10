@@ -28,10 +28,22 @@ android {
 
         // Backend URLs are no longer build constants — they're runtime config, editable from
         // Settings without a rebuild. See BackendConfig.kt (DEFAULT_BACKEND_ROOT) for the default.
+    }
 
-        // Sentry DSN — set `sentry.dsn=...` in local.properties to enable crash/error
-        // reporting. Empty by default, which makes the Sentry SDK a no-op.
-        buildConfigField "String", "SENTRY_DSN", "\"${localProps.getProperty('sentry.dsn', '')}\""
+    // play: the Play Store and the hosted APK. Carries Sentry, initialised in debug builds only.
+    // fdroid: no crash-reporting SDK at all, so F-Droid's scanner finds nothing to flag.
+    flavorDimensions = ["distribution"]
+    productFlavors {
+        play {
+            dimension "distribution"
+            isDefault true
+            // Sentry DSN — set `sentry.dsn=...` in local.properties to enable crash/error
+            // reporting. Empty by default, which makes the Sentry SDK a no-op.
+            buildConfigField "String", "SENTRY_DSN", "\"${localProps.getProperty('sentry.dsn', '')}\""
+        }
+        fdroid {
+            dimension "distribution"
+        }
     }
 
     // Upload key for Play. Everything comes from local.properties (gitignored) so neither the
@@ -63,6 +75,12 @@ android {
                 logger.lifecycle("No release signing config (set release.* in local.properties) — release build will be unsigned")
             }
         }
+    }
+    // AGP otherwise embeds a dependency list in the APK encrypted with a Google key, which
+    // F-Droid rejects as an opaque blob. Play reads the copy in the bundle, which stays.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = true
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -120,7 +138,7 @@ dependencies {
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
     implementation 'androidx.work:work-runtime-ktx:2.9.1'
 
-    implementation 'io.sentry:sentry-android:7.18.0'
+    playImplementation 'io.sentry:sentry-android:7.18.0'
 
     // On-device MCP server + HTTP API. The MCP SDK pulls Ktor 3.2.3 transitively; we pin all Ktor
     // artifacts to that exact version to avoid the known SSE binary-incompat NoSuchMethodError.

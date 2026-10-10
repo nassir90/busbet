@@ -27,9 +27,6 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar">
 
-        <!-- We initialise Sentry manually in TfiApp (to set beforeSend), so disable auto-init. -->
-        <meta-data android:name="io.sentry.auto-init" android:value="false" />
-
         <activity
             android:name=".MainActivity"
             android:exported="true"

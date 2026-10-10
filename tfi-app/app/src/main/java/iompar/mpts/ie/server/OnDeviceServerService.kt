@@ -44,7 +44,7 @@ class OnDeviceServerService : Service() {
             startForeground(FOREGROUND_NOTIF_ID, buildNotification("Starting on-device server…"))
         } catch (e: IllegalStateException) {
             android.util.Log.w("tfi", "on-device server foreground start refused", e)
-            io.sentry.Sentry.captureException(e)
+            iompar.mpts.ie.Telemetry.captureException(e)
             stopSelf()
             return START_NOT_STICKY
         }
