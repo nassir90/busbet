@@ -1,4 +1,4 @@
-Updated: 9 October 2026
+Updated: 13 October 2026
 
 Iompar shows live bus departure times in Dublin. It uses open transport data. This policy tells you what the app does with your data.
 
@@ -28,6 +28,7 @@ The home screen widget reads your location when the app is closed. Then the widg
 The app keeps this data only on your device:
 
 - your favourite stops
+- your saved places, for example home and work
 - the theme
 - the notification schedules
 - the recent searches
@@ -42,6 +43,12 @@ The app gets timetable data and live departure data from the backend servers. Th
 The servers do not keep a record of the IP address of a request.
 
 In Settings, you can select a different backend server. Then the app sends the data to the operator of that server. This policy does not apply to that server.
+
+## Journey planning
+
+When you plan a journey, the app sends the start point and the end point to the backend servers. The servers use them to find the journey. The servers do not keep the points and do not keep a record of them. The points are not in the address of the request, so they are not in network logs.
+
+If you start from your location, the start point is the location of your device.
 
 ## Maps
 

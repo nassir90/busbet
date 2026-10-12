@@ -5,6 +5,8 @@ import com.google.gson.reflect.TypeToken
 import iompar.mpts.ie.BatchDeparturesResponse
 import iompar.mpts.ie.DeparturesResponse
 import iompar.mpts.ie.GtfsApi
+import iompar.mpts.ie.PlanRequest
+import iompar.mpts.ie.PlanResponse
 import iompar.mpts.ie.RouteDirection
 import iompar.mpts.ie.RouteStop
 import iompar.mpts.ie.ShapePoint
@@ -58,6 +60,9 @@ class FixtureGtfsApi : GtfsApi {
     override suspend fun tripVehicle(tripId: String): VehiclePosition = load("vehicles-trip/$tripId")
     override suspend fun tripShape(tripId: String): List<ShapePoint> = load("shapes-trip/$tripId")
     override suspend fun stopRoutes(stopCode: String): List<String> = load("stop-routes/$stopCode")
+    /** Plans are keyed by both ends to four decimals (~10 m), the precision the fixtures were made at. */
+    override suspend fun plan(body: PlanRequest): PlanResponse =
+        load("plan/%.4f,%.4f-%.4f,%.4f".format(java.util.Locale.ROOT, body.from.lat, body.from.lon, body.to.lat, body.to.lon))
 
     /** Test-side reads, for picking a real trip or route out of a recorded board. */
     fun recordedDepartures(code: String): DeparturesResponse = gson.fromJson(

@@ -6,6 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -23,6 +24,9 @@ import iompar.mpts.ie.FeatureRequestDraft
 import iompar.mpts.ie.LocalMapTileProvider
 import iompar.mpts.ie.PaletteCache
 import iompar.mpts.ie.PaletteStore
+import iompar.mpts.ie.PlaceKind
+import iompar.mpts.ie.SavedPlace
+import iompar.mpts.ie.SavedPlacesStore
 import iompar.mpts.ie.SERVICE_ZONE
 import iompar.mpts.ie.ThemeMode
 import iompar.mpts.ie.Screen
@@ -172,6 +176,39 @@ abstract class AppScreenshots(private val theme: String) {
         capture("12-feedback-attached")
     }
 
+    /**
+     * The journey planner, from a phone standing at home in Lucan to "Work" by Aston Quay: the
+     * empty form, the options, and one itinerary on the map.
+     */
+    @Test fun journey() {
+        runBlocking {
+            SavedPlacesStore(app).replaceAll(SAVED_PLACES)
+        }
+        val lm = app.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+        shadowOf(app).grantPermissions(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+        shadowOf(lm).setProviderEnabled(android.location.LocationManager.GPS_PROVIDER, true)
+        shadowOf(lm).simulateLocation(android.location.Location(android.location.LocationManager.GPS_PROVIDER).apply {
+            latitude = HOME.lat
+            longitude = HOME.lon
+            accuracy = 10f
+            time = FIXTURE_AT_SEC * 1000
+        })
+
+        show(listOf(Screen.Journey))
+        capture("14-journey")
+
+        compose.onNodeWithText("Work").performClick()
+        settle()
+        capture("15-journey-options")
+
+        compose.onAllNodesWithText(" – ", substring = true)[0].performClick()
+        settle()
+        capture("16-journey-itinerary")
+
+        // Not captured: the save-place dialog. A text field inside a dialog never goes idle under
+        // Robolectric (the same as the favourite rename dialog), though it is fine on a phone.
+    }
+
     /** A departure with live data, so the trip and route screens open on something running. */
     private fun liveDeparture(code: String): Departure {
         val board = runCatching { fixtures.recordedDepartures(code) }.getOrNull()
@@ -220,6 +257,10 @@ abstract class AppScreenshots(private val theme: String) {
     }
 
     companion object {
+        val HOME = SavedPlace(id = "home", label = "Home", kind = PlaceKind.HOME, lat = 53.3433, lon = -6.4498)
+        val WORK = SavedPlace(id = "work", label = "Work", kind = PlaceKind.WORK, lat = 53.3468, lon = -6.2585)
+        val SAVED_PLACES = listOf(HOME, WORK)
+
         /** The stops this was built around: a city-centre stop and the C1/C2 commute out to Lucan. */
         val FAVOURITES = listOf(
             Favourite(code = "7392", name = "Aston Quay"),

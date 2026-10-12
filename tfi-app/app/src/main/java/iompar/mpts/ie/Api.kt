@@ -202,7 +202,79 @@ interface GtfsApi {
 
     @GET("stop-routes/{stopCode}")
     suspend fun stopRoutes(@Path("stopCode") stopCode: String): List<String>
+
+    /**
+     * Walk + public transport journeys. POST so the two points stay out of URLs and logs; the
+     * server neither logs nor keeps them. 404 means this deployment doesn't plan journeys —
+     * [JourneyScreen] says so rather than treating it as a failure.
+     */
+    @Headers("$EXPECTED_STATUS_HEADER: 404")
+    @POST("plan")
+    suspend fun plan(@Body body: PlanRequest): PlanResponse
 }
+
+data class LatLon(val lat: Double, val lon: Double)
+
+data class PlanRequest(
+    val from: LatLon,
+    val to: LatLon,
+    /** Epoch seconds; null plans from now. */
+    @SerializedName("depart_at") val departAt: Long? = null,
+    @SerializedName("max_itineraries") val maxItineraries: Int? = null,
+)
+
+data class PlanPlace(
+    val name: String?,
+    val lat: Double,
+    val lon: Double,
+    @SerializedName("stop_id") val stopId: String? = null,
+    @SerializedName("stop_code") val stopCode: String? = null,
+)
+
+/** One leg: a walk, or a ride on one vehicle. Times are epoch seconds. */
+data class PlanLeg(
+    /** "walk", "bus", "tram", "rail", … */
+    val mode: String,
+    val from: PlanPlace,
+    val to: PlanPlace,
+    val start: Long,
+    val end: Long,
+    @SerializedName("duration_s") val durationS: Int,
+    @SerializedName("distance_m") val distanceM: Int? = null,
+    val route: String? = null,
+    @SerializedName("route_type") val routeType: Int? = null,
+    val headsign: String? = null,
+    @SerializedName("trip_id") val tripId: String? = null,
+    @SerializedName("scheduled_start") val scheduledStart: Long? = null,
+    @SerializedName("delay_s") val delayS: Int? = null,
+    val realtime: Boolean = false,
+    @SerializedName("intermediate_stops") val intermediateStops: Int? = null,
+    /** [lat, lon] pairs. */
+    val geometry: List<List<Double>> = emptyList(),
+) {
+    val isWalk: Boolean get() = mode == "walk"
+}
+
+data class Itinerary(
+    val departure: Long,
+    val arrival: Long,
+    @SerializedName("duration_s") val durationS: Int,
+    val transfers: Int,
+    @SerializedName("walk_s") val walkS: Int,
+    @SerializedName("walk_m") val walkM: Int,
+    val legs: List<PlanLeg>,
+)
+
+data class PlanRealtime(
+    val used: Boolean,
+    @SerializedName("feed_timestamp") val feedTimestamp: Long? = null,
+)
+
+data class PlanResponse(
+    val itineraries: List<Itinerary>,
+    @SerializedName("service_date") val serviceDate: String? = null,
+    val realtime: PlanRealtime? = null,
+)
 
 /** Stateful write API (tfi-tenant-api) — separate host from the read-only GTFS proxy. */
 interface TenantApi {

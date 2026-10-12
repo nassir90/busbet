@@ -104,6 +104,8 @@ class MainActivity : ComponentActivity() {
 sealed class Screen {
     data object Home : Screen()
     data object Settings : Screen()
+    /** Walk + public transport journeys. Carries no arguments: see [JourneyState]. */
+    data object Journey : Screen()
     data class StopBoard(val code: String) : Screen()
     data class RouteView(val route: String, val direction: Int) : Screen()
     data class TripView(val tripId: String, val fromStopCode: String? = null) : Screen()
@@ -129,6 +131,7 @@ val Screen.screenName: String
     get() = when (this) {
         is Screen.Home -> "Home"
         is Screen.Settings -> "Settings"
+        is Screen.Journey -> "Journey"
         is Screen.StopBoard -> "StopBoard"
         is Screen.RouteView -> "RouteView"
         is Screen.TripView -> "TripView"
@@ -189,6 +192,7 @@ fun App(
     val serverSettingsStore = remember { iompar.mpts.ie.server.ServerSettingsStore(context) }
     val backendConfigStore = remember { BackendConfigStore(context) }
     val timeController = remember { TimeController() }
+    val journeyState = remember { JourneyState() }
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 2 })
     val scope = rememberCoroutineScope()
 
@@ -395,6 +399,13 @@ fun App(
                     },
                     onOpenSettings = { stack.add(Screen.Settings) },
                     onOpenNotifications = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    onOpenJourney = { stack.add(Screen.Journey) },
+                )
+                is Screen.Journey -> JourneyScreen(
+                    state = journeyState,
+                    onBack = { pop() },
+                    onOpenTrip = { tripId, fromCode -> stack.add(Screen.TripView(tripId, fromCode)) },
+                    onOpenStop = { stack.add(Screen.StopBoard(it)) },
                 )
                 is Screen.Settings -> SettingsScreen(
                     paletteStore = paletteStore,

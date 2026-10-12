@@ -320,6 +320,8 @@ fun describeScreen(screen: Screen?, onNotificationsPage: Boolean): String = when
     screen is Screen.RouteView -> "Route ${screen.route} (direction ${screen.direction})"
     screen is Screen.TripView -> "Trip ${screen.tripId}"
     screen is Screen.Report -> "Report — ${screen.routeShortName} at ${screen.stopCode}"
+    // Deliberately no more than that: the journey's ends are where someone lives or works.
+    screen is Screen.Journey -> "Journey planner"
     else -> "Feature request"
 }
 

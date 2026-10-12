@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
@@ -60,6 +61,7 @@ fun HomeScreen(
     onReport: (d: Departure, stopCode: String, stopName: String) -> Unit = { _, _, _ -> },
     onOpenSettings: () -> Unit,
     onOpenNotifications: () -> Unit = {},
+    onOpenJourney: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val favStore = remember { FavouritesStore(context) }
@@ -242,6 +244,13 @@ fun HomeScreen(
             actions = {
                 if (anyStale) StaleBadge()
                 TimeTravelChip(timeController, onClick = { showTimePanel = !showTimePanel })
+                IconButton(onClick = onOpenJourney) {
+                    Icon(
+                        Icons.Filled.Directions,
+                        contentDescription = "Plan a journey",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
                 IconButton(onClick = onOpenNotifications) {
                     Icon(
                         Icons.Filled.Notifications,
