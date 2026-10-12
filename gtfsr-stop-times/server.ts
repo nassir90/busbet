@@ -8,6 +8,7 @@ import { parseTimeParam, parseDuration, DEFAULT_LOOKBACK_S } from './src/snapsho
 import { serviceMinutes, minutesUntil, SERVICE_TZ } from './src/servicetime.js';
 import { Planner } from './src/plan/planner.js';
 import { sqliteSource } from './src/plan/sources.js';
+import { buildTimetableInChild } from './src/plan/build-child.js';
 
 const MAX_RANGE_STEPS = 1000;
 
@@ -59,7 +60,8 @@ const storage = createSqliteBackend(DB_PATH);
 const PLANNER_ENABLED = process.env.PLANNER === '1';
 let planner: Promise<Planner> | null = null;
 function getPlanner(): Promise<Planner> {
-	planner ??= sqliteSource(DB_PATH).then((src) => new Planner(src, SERVICE_TZ));
+	planner ??= sqliteSource(DB_PATH).then((src) =>
+		new Planner(src, SERVICE_TZ, {}, 2, (date) => buildTimetableInChild(DB_PATH, date, SERVICE_TZ)));
 	return planner;
 }
 if (PLANNER_ENABLED) {

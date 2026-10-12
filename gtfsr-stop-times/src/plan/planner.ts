@@ -101,12 +101,17 @@ export class Planner {
 		private readonly buildOptions: BuildOptions = {},
 		/** How many service days to keep built. Each is ~30–60 MB of typed arrays. */
 		private readonly keepDays = 2,
+		/**
+		 * Builds timetables somewhere other than this thread, e.g. [buildTimetableInChild], so the
+		 * build's garbage doesn't stay resident. Defaults to building in-line from [source].
+		 */
+		private readonly builder?: (date: string) => Promise<Timetable>,
 	) {}
 
 	timetableFor(date: string): Promise<Timetable> {
 		let p = this.cache.get(date);
 		if (!p) {
-			p = buildTimetable(this.source, date, this.timeZone, this.buildOptions);
+			p = this.builder ? this.builder(date) : buildTimetable(this.source, date, this.timeZone, this.buildOptions);
 			p.catch(() => this.cache.delete(date));
 			this.cache.set(date, p);
 			while (this.cache.size > this.keepDays) this.cache.delete(this.cache.keys().next().value!);
