@@ -19,10 +19,20 @@ export interface RealtimeOverlay {
 	tripHasRealtime: Uint8Array;
 	updatedTrips: number;
 	cancelledTrips: number;
+	/** Trips whose updates were ignored as implausible (see [plausible]). */
+	implausibleTrips: number;
 	feedTimestamp: number | null;
 }
 
 const CANCELED = 3;
+
+/** Delays the planner believes: up to ten minutes early, up to an hour late. */
+export const MIN_DELAY_S = -10 * 60;
+export const MAX_DELAY_S = 60 * 60;
+
+function plausible(d: number | null): boolean {
+	return d == null || (d >= MIN_DELAY_S && d <= MAX_DELAY_S);
+}
 
 const tripIndexCache = new WeakMap<Timetable, Map<string, number[]>>();
 
@@ -55,6 +65,7 @@ export function realtimeOverlay(tt: Timetable, feed: transit_realtime.FeedMessag
 	const byId = tripIndexById(tt);
 	let updatedTrips = 0;
 	let cancelledTrips = 0;
+	let implausibleTrips = 0;
 
 	for (const entity of feed.entity) {
 		const tu = entity.tripUpdate;
@@ -84,6 +95,13 @@ export function realtimeOverlay(tt: Timetable, feed: transit_realtime.FeedMessag
 			.filter((u) => u.arrDelay != null || u.depDelay != null)
 			.sort((a, b) => a.seq - b.seq);
 		if (!updates.length) continue;
+		// The NTA feed carries the odd update that can't be right — a bus two hours late at its
+		// first stop, a tram 45 minutes early. Planning on those invents connections, so such a trip
+		// keeps its timetable instead. The departure boards show the raw figure; a plan can't.
+		if (updates.some((u) => !plausible(u.arrDelay) || !plausible(u.depDelay))) {
+			implausibleTrips += instances.length;
+			continue;
+		}
 		for (const t of instances) {
 			const base = tt.tripTimesStart[t];
 			const p = tt.tripPattern[t];
@@ -96,7 +114,12 @@ export function realtimeOverlay(tt: Timetable, feed: transit_realtime.FeedMessag
 				const up = updates[u];
 				arr[base + i] = tt.arr[base + i] + (up.arrDelay ?? up.depDelay ?? 0);
 				dep[base + i] = tt.dep[base + i] + (up.depDelay ?? up.arrDelay ?? 0);
-				// A bus can't leave a stop before it gets there.
+			}
+			// Delays apply from the first updated stop on, so a negative one can put a later stop
+			// before an earlier one. A vehicle can't arrive before it left the last stop, or leave
+			// before it arrived; RAPTOR relies on both.
+			for (let i = 0; i < len; i++) {
+				if (i > 0 && arr[base + i] < dep[base + i - 1]) arr[base + i] = dep[base + i - 1];
 				if (dep[base + i] < arr[base + i]) dep[base + i] = arr[base + i];
 			}
 			tripHasRealtime[t] = 1;
@@ -121,7 +144,7 @@ export function realtimeOverlay(tt: Timetable, feed: transit_realtime.FeedMessag
 	}
 
 	const overlay: RealtimeOverlay = {
-		arr, dep, nonFifoPatterns, banned, tripHasRealtime, updatedTrips, cancelledTrips,
+		arr, dep, nonFifoPatterns, banned, tripHasRealtime, updatedTrips, cancelledTrips, implausibleTrips,
 		feedTimestamp: feed.header?.timestamp != null ? Number(feed.header.timestamp) : null,
 	};
 	if (!perTt) overlayCache.set(feed, (perTt = new WeakMap()));

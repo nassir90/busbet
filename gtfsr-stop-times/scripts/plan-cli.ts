@@ -6,7 +6,9 @@
  *   npx tsx scripts/plan-cli.ts --gtfs /path/to/extracted --at 2026-10-13T08:30 [--json out.json]
  *   npx tsx scripts/plan-cli.ts --db ../data/busbet.db --at ...
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import { Planner, type Itinerary } from '../src/plan/planner.js';
 import { csvSource, sqliteSource } from '../src/plan/sources.js';
 import { epochZeroOf, typedBytes } from '../src/plan/timetable.js';
@@ -41,7 +43,9 @@ export function hhmm(epoch: number): string {
 
 export function summarise(i: Itinerary): string {
 	const parts = i.legs.map((l) =>
-		l.mode === 'walk' ? `walk ${Math.round(l.duration_s / 60)}′` : `${l.mode} ${l.route} (${l.from.name} → ${l.to.name})`,
+		l.mode === 'walk'
+			? `walk ${Math.round(l.duration_s / 60)}′`
+			: `${l.mode} ${l.route} (${l.from.name} → ${l.to.name})${l.realtime ? ` [${l.delay_s! >= 0 ? '+' : ''}${Math.round(l.delay_s! / 60)}′ rt]` : ''}`,
 	);
 	return `${hhmm(i.departure)}–${hhmm(i.arrival)} ${Math.round(i.duration_s / 60)} min, ${i.transfers} chg: ${parts.join(' › ')}`;
 }
@@ -51,6 +55,11 @@ async function main() {
 	const db = arg('db');
 	const at = arg('at') ?? '2026-10-13T08:30';
 	const out = arg('json');
+	const rtFile = arg('rt');
+	// CommonJS package: default import, then reach in (see src/snapshots.ts).
+	const feed = rtFile
+		? (GtfsRealtimeBindings as any).transit_realtime.FeedMessage.decode(gunzipSync(readFileSync(rtFile)))
+		: null;
 	const source = gtfs ? csvSource(gtfs) : await sqliteSource(db!);
 	const planner = new Planner(source);
 	const departAt = dublinEpoch(at);
@@ -64,9 +73,10 @@ async function main() {
 	const results: unknown[] = [];
 	for (const od of OD_PAIRS) {
 		const started = performance.now();
-		const res = await planner.plan({ from: { lat: od.from[0], lon: od.from[1] }, to: { lat: od.to[0], lon: od.to[1] }, departAt });
+		const res = await planner.plan({ from: { lat: od.from[0], lon: od.from[1] }, to: { lat: od.to[0], lon: od.to[1] }, departAt, feed });
 		const ms = performance.now() - started;
 		console.log(`\n${od.name}  [${ms.toFixed(0)} ms total, ${res.debug.raptor_runs} runs, raptor ${res.debug.raptor_ms} ms, ${res.debug.access_stops}/${res.debug.egress_stops} stops]`);
+		if (res.realtime.used) console.log(`  realtime: ${res.realtime.updated_trips} trips updated, ${res.realtime.ignored_trips} ignored`);
 		for (const i of res.itineraries) console.log('  ' + summarise(i));
 		results.push({ od, ms, res });
 	}

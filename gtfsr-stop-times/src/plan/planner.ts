@@ -77,7 +77,7 @@ export interface Itinerary {
 export interface PlanResponse {
 	itineraries: Itinerary[];
 	service_date: string;
-	realtime: { used: boolean; feed_timestamp: number | null; updated_trips: number };
+	realtime: { used: boolean; feed_timestamp: number | null; updated_trips: number; ignored_trips: number };
 	debug: { raptor_runs: number; raptor_ms: number; access_stops: number; egress_stops: number; timetable_build_ms: number };
 }
 
@@ -195,7 +195,12 @@ export class Planner {
 				.sort((a, b) => a.arrival - b.arrival || a.transfers - b.transfers)
 				.slice(0, maxItins + 1),
 			service_date: tt.date,
-			realtime: { used: !!overlay, feed_timestamp: overlay?.feedTimestamp ?? null, updated_trips: overlay?.updatedTrips ?? 0 },
+			realtime: {
+				used: !!overlay,
+				feed_timestamp: overlay?.feedTimestamp ?? null,
+				updated_trips: overlay?.updatedTrips ?? 0,
+				ignored_trips: overlay?.implausibleTrips ?? 0,
+			},
 			debug: {
 				raptor_runs: runs,
 				raptor_ms: Math.round(raptorMs * 10) / 10,
