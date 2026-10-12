@@ -369,7 +369,8 @@ const server = http.createServer(async (req, res) => {
 				return respond(res, 400, { message: 'depart_at must be within the next 14 days' });
 			}
 			// Realtime only describes the next hour or two; further out the timetable is the best guess.
-			const feed = departAt <= now + 2 * 3600 ? fetchFeed(FEEDS_DIR) : null;
+			// A snapshot older than the boards' lookback describes buses that have since moved on.
+			const feed = departAt <= now + 2 * 3600 ? selectFeed(FEEDS_DIR, undefined, DEFAULT_LOOKBACK_S).feed : null;
 			const result = await (await getPlanner()).plan({
 				from, to, departAt, feed,
 				maxItineraries: typeof body.max_itineraries === 'number' ? body.max_itineraries : undefined,
