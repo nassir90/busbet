@@ -12,7 +12,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * The on-device half of the route-planning experiment (docs/ROUTE_PLANNING.md): the backend's
+ * The on-device half of the route-planning experiment (gtfsr-stop-times/docs/ROUTE_PLANNING.md): the backend's
  * RAPTOR (gtfsr-stop-times/src/plan/raptor.ts) ported line for line, over the binary timetable
  * scripts/export-ondevice.ts writes. It lives in the test sources because it is a measurement,
  * not a feature: the app plans on the server.
