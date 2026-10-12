@@ -6,6 +6,8 @@ import { fetchFeed, selectFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js'
 import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
 import { parseTimeParam, parseDuration, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
 import { serviceMinutes, minutesUntil, SERVICE_TZ } from './src/servicetime.js';
+import { Planner } from './src/plan/planner.js';
+import { sqliteSource } from './src/plan/sources.js';
 
 const MAX_RANGE_STEPS = 1000;
 
@@ -48,6 +50,51 @@ const FEEDS_DIR   = process.env.GTFS_FEEDS_DIR ?? '/home/lab/Projects/busbet/gtf
 const VEHICLES_DIR = process.env.GTFS_VEHICLES_DIR ?? vehiclesDirFromFeedsDir(FEEDS_DIR);
 
 const storage = createSqliteBackend(DB_PATH);
+
+/**
+ * Journey planning (prototype). Off unless PLANNER=1: it holds one or two service days of
+ * timetable in memory (~11 MB of arrays each, plus strings), and this host's spare memory is what
+ * keeps the 1.3 GB database in page cache. See docs/ROUTE_PLANNING.md.
+ */
+const PLANNER_ENABLED = process.env.PLANNER === '1';
+let planner: Promise<Planner> | null = null;
+function getPlanner(): Promise<Planner> {
+	planner ??= sqliteSource(DB_PATH).then((src) => new Planner(src, SERVICE_TZ));
+	return planner;
+}
+if (PLANNER_ENABLED) {
+	// Build today's timetable at start-up so the first request doesn't pay for it.
+	getPlanner()
+		.then((p) => p.plan({ from: { lat: 53.3498, lon: -6.2603 }, to: { lat: 53.3438, lon: -6.2546 }, departAt: Math.floor(Date.now() / 1000) }))
+		.then(() => console.log('[plan] timetable ready'))
+		.catch((e) => console.error('[plan] warm-up failed:', e));
+}
+
+/** Request bodies are a few hundred bytes; anything much bigger isn't a plan request. */
+const MAX_PLAN_BODY = 4096;
+
+function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
+	return new Promise((resolve, reject) => {
+		let size = 0;
+		const chunks: Buffer[] = [];
+		req.on('data', (c: Buffer) => {
+			size += c.length;
+			if (size > limit) { reject(new Error('body too large')); req.destroy(); return; }
+			chunks.push(c);
+		});
+		req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+		req.on('error', reject);
+	});
+}
+
+/** A point on or near the island of Ireland; anything else is a client bug or a probe. */
+function parsePoint(v: unknown): { lat: number; lon: number } | null {
+	if (!v || typeof v !== 'object') return null;
+	const { lat, lon } = v as { lat?: unknown; lon?: unknown };
+	if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+	if (lat < 51 || lat > 55.6 || lon < -11 || lon > -5.2) return null;
+	return { lat, lon };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -298,6 +345,34 @@ const server = http.createServer(async (req, res) => {
 			const pts = await storage.getShape(decodeURIComponent(shapeById[1]));
 			if (!pts.length) return respond(res, 404, { message: `Shape ${shapeById[1]} not found` });
 			return respond(res, 200, pts, STATIC_CACHE_HEADERS);
+		}
+
+		// POST, not GET: the origin and destination are where someone lives or works, and a body
+		// stays out of URLs, proxy logs and browser history. Nothing here logs or stores them.
+		if (path === '/plan') {
+			if (!PLANNER_ENABLED) return respond(res, 404, { message: 'Journey planning is not enabled on this server' });
+			if (req.method !== 'POST') return respond(res, 405, { message: 'POST a JSON body' }, { Allow: 'POST' });
+			let body: Record<string, unknown>;
+			try {
+				body = JSON.parse(await readBody(req, MAX_PLAN_BODY));
+			} catch {
+				return respond(res, 400, { message: 'Body must be JSON under 4 KB' });
+			}
+			const from = parsePoint(body.from);
+			const to = parsePoint(body.to);
+			if (!from || !to) return respond(res, 400, { message: 'from and to must be {lat, lon} in Ireland' });
+			const now = Math.floor(Date.now() / 1000);
+			const departAt = typeof body.depart_at === 'number' ? Math.floor(body.depart_at) : now;
+			if (departAt < now - 86400 || departAt > now + 14 * 86400) {
+				return respond(res, 400, { message: 'depart_at must be within the next 14 days' });
+			}
+			// Realtime only describes the next hour or two; further out the timetable is the best guess.
+			const feed = departAt <= now + 2 * 3600 ? fetchFeed(FEEDS_DIR) : null;
+			const result = await (await getPlanner()).plan({
+				from, to, departAt, feed,
+				maxItineraries: typeof body.max_itineraries === 'number' ? body.max_itineraries : undefined,
+			});
+			return respond(res, 200, result, { 'Cache-Control': 'no-store' });
 		}
 
 		const vehicles = path.match(/^\/vehicles\/([^/]+)$/);
