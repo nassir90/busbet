@@ -25,7 +25,14 @@ fun JourneyMap(itinerary: Itinerary, modifier: Modifier = Modifier) {
     val lineArgb = MaterialTheme.colorScheme.primary.toArgb()
     val walkArgb = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val endArgb = MaterialTheme.colorScheme.tertiary.toArgb()
-    val mapView = rememberMapView { styleBaseMap(this, isDark) }
+    val mapView = rememberMapView {
+        styleBaseMap(this, isDark)
+        // Open over the journey: osmdroid's default view is 0°N 0°E, whose tiles would otherwise
+        // be fetched for the frame before the itinerary is framed.
+        val start = itinerary.legs.first().from
+        controller.setZoom(12.0)
+        controller.setCenter(GeoPoint(start.lat, start.lon))
+    }
 
     AndroidView(
         factory = { mapView },
