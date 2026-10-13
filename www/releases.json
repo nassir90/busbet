@@ -1,0 +1,15 @@
+[
+  {
+    "version": "1.16",
+    "notes": "Preview from the route-planning branch: plan a journey by foot, bus, Luas and train, and save places such as home and work. Journey planning is not yet switched on on the server.",
+    "preview": true
+  },
+  {
+    "version": "1.15",
+    "notes": "Choose light or dark regardless of the phone's setting. Maps stay sharp when you zoom in."
+  },
+  {
+    "version": "1.13",
+    "notes": "Send feedback from Settings, with a screenshot of any screen attached."
+  }
+]

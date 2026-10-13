@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Iompar</title>
+<meta name="description" content="Live Dublin bus, Luas and rail departures for Android.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f6f5;--fg:#17211f;--mut:#56645f;--card:#fff;--line:#d6dedb;--acc:#3d5663;--onacc:#fff;--soft:#e3eaee;--tag:#e7efe9;--tagfg:#2c5a40;--dbg:#f5ecdc;--dbgfg:#7a5410}
+@media (prefers-color-scheme:dark){:root{--bg:#111716;--fg:#e3eae7;--mut:#9aa8a3;--card:#19211f;--line:#2b3633;--acc:#a9c3d1;--onacc:#10202a;--soft:#22303a;--tag:#1f3328;--tagfg:#9fd3b0;--dbg:#3a2e17;--dbgfg:#e8c27a;color-scheme:dark}}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 "IBM Plex Sans",system-ui,sans-serif}
+a{color:var(--acc)}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:16px}
+header{padding-block:48px 28px}
+h1{font-size:2.4rem;line-height:1.1;margin:0 0 8px;letter-spacing:-.01em}
+.lede{font-size:1.15rem;color:var(--mut);margin:0 0 24px;max-width:60ch}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-block;padding:11px 18px;border-radius:8px;text-decoration:none;font-weight:600}
+.btn.primary{background:var(--acc);color:var(--onacc)}
+.btn.secondary{background:var(--soft);color:var(--fg)}
+h2{font-size:1.3rem;margin:48px 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(42%,210px),1fr));gap:20px}
+figure{margin:0;min-width:0}
+figure img{width:100%;height:auto;display:block;border-radius:14px;border:1px solid var(--line);background:var(--card)}
+figcaption{font-size:.9rem;color:var(--mut);margin-top:8px}
+.tbl{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);font-weight:600}
+tr:last-child td{border-bottom:0}
+td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag{display:inline-block;font-size:.75rem;font-weight:600;padding:1px 8px;border-radius:99px;background:var(--tag);color:var(--tagfg)}
+.tag.debug{background:var(--dbg);color:var(--dbgfg)}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.8rem;word-break:break-all}
+.notes{color:var(--mut);max-width:46ch}
+.fine{color:var(--mut);font-size:.9rem;max-width:72ch}
+footer{margin-block:56px 40px;color:var(--mut);font-size:.88rem;display:flex;flex-wrap:wrap;gap:8px 24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>Iompar</h1>
+<p class="lede">Live Dublin bus, Luas and rail departures for Android, built to replace the TFI Live app.</p>
+<div class="cta">
+<a class="btn primary" href="https://play.google.com/apps/testing/iompar.mpts.ie">Become a tester on Google Play</a>
+<a class="btn secondary" href="/artefacts/release/1.15.apk">Download Iompar 1.15</a>
+</div>
+</header>
+<main>
+<h2>Screenshots</h2>
+<div class="grid">
+<figure><picture><source srcset="screens/00-home-nearby-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/00-home-nearby-light.webp" width="480" height="1040" loading="lazy" alt="Favourites with their next departures"></picture><figcaption>Favourites with their next departures</figcaption></figure><figure><picture><source srcset="screens/02-stop-aston-quay-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/02-stop-aston-quay-light.webp" width="480" height="1040" loading="lazy" alt="A stop&#x27;s live board and map"></picture><figcaption>A stop&#x27;s live board and map</figcaption></figure><figure><picture><source srcset="screens/04-trip-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/04-trip-light.webp" width="480" height="1040" loading="lazy" alt="Where a bus is on its trip"></picture><figcaption>Where a bus is on its trip</figcaption></figure><figure><picture><source srcset="screens/05-route-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/05-route-light.webp" width="480" height="1040" loading="lazy" alt="Every stop on a route"></picture><figcaption>Every stop on a route</figcaption></figure><figure><picture><source srcset="screens/15-journey-options-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/15-journey-options-light.webp" width="480" height="1040" loading="lazy" alt="Journey options (1.16 preview)"></picture><figcaption>Journey options (1.16 preview)</figcaption></figure><figure><picture><source srcset="screens/16-journey-itinerary-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/16-journey-itinerary-light.webp" width="480" height="1040" loading="lazy" alt="A journey on the map (1.16 preview)"></picture><figcaption>A journey on the map (1.16 preview)</figcaption></figure><figure><picture><source srcset="screens/06-settings-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/06-settings-light.webp" width="480" height="1040" loading="lazy" alt="Themes and settings"></picture><figcaption>Themes and settings</figcaption></figure><figure><picture><source srcset="screens/10-feedback-dark.webp" media="(prefers-color-scheme: dark)"><img src="screens/10-feedback-light.webp" width="480" height="1040" loading="lazy" alt="Feedback from inside the app"></picture><figcaption>Feedback from inside the app</figcaption></figure>
+</div>
+<h2 id="downloads">Downloads</h2>
+<div class="tbl"><table>
+<tr><th>Build</th><th>Kind</th><th>Size</th><th>Date</th><th>Changes</th><th>SHA-256</th></tr>
+<tr><td class="n"><a href="/artefacts/release/1.16.apk">Iompar 1.16</a></td><td><span class="tag">release</span> <span class="tag debug">preview</span></td><td class="n">25 MB</td><td class="n">2026-10-13</td><td class="notes">Preview from the route-planning branch: plan a journey by foot, bus, Luas and train, and save places such as home and work. Journey planning is not yet switched on on the server.</td><td><code title="SHA-256">a0bf659bdc889ce5d8fc8c215a3be7dccd0720d1970ab5d16a2e020560370777</code></td></tr><tr><td class="n"><a href="/artefacts/debug/1.16.apk">Iompar 1.16</a></td><td><span class="tag debug">debug</span> <span class="tag debug">preview</span></td><td class="n">33 MB</td><td class="n">2026-10-13</td><td class="notes"></td><td><code title="SHA-256">03d89e3869573a4dd000f9da16372872deb9e2da6dcccb100c65b1fbdf78b96b</code></td></tr><tr><td class="n"><a href="/artefacts/release/1.15.apk">Iompar 1.15</a></td><td><span class="tag">release</span></td><td class="n">25 MB</td><td class="n">2026-10-13</td><td class="notes">Choose light or dark regardless of the phone&#x27;s setting. Maps stay sharp when you zoom in.</td><td><code title="SHA-256">19e962af74e465e73c296bceb09f733765b01940c0f264a60822628040a7a4f0</code></td></tr><tr><td class="n"><a href="/artefacts/debug/1.15.apk">Iompar 1.15</a></td><td><span class="tag debug">debug</span></td><td class="n">33 MB</td><td class="n">2026-10-13</td><td class="notes"></td><td><code title="SHA-256">c01ee671f62527beec9ba53004232c31986e55db85a3e28a6f48696ab6b36f7b</code></td></tr><tr><td class="n"><a href="/artefacts/release/1.13.apk">Iompar 1.13</a></td><td><span class="tag">release</span></td><td class="n">25 MB</td><td class="n">2026-10-09</td><td class="notes">Send feedback from Settings, with a screenshot of any screen attached.</td><td><code title="SHA-256">c9aa4c289123309904b5334e5578757f5658b02dfbdd535dac41489d10465221</code></td></tr>
+</table></div>
+<p class="fine">Google Play is the recommended way to install. Play, these release downloads and the debug downloads are each signed differently, so one can't be installed over another: uninstall first to switch. Debug builds are for testing.</p>
+</main>
+<footer>
+<a href="/privacy-policy">Privacy policy</a>
+<span>Timetables and live data: National Transport Authority</span>
+<span>Maps © OpenStreetMap contributors</span>
+</footer>
+</div>
+</body>
+</html>
