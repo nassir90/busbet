@@ -4,6 +4,10 @@
  * Downloads the NTA GTFS static zip (or uses a local copy) and loads
  * stops, routes, trips, stop_times, and calendar data into the configured backend.
  *
+ * With SQLite the load builds a new file beside DATABASE_URL and swaps it in at the end, so
+ * the live database is untouched until then. Restart gtfsr-stop-times afterwards: it keeps
+ * serving the old file until it reopens.
+ *
  * Usage:
  *   npm run load-gtfs
  *   npm run load-gtfs -- --file /path/to/gtfs.zip
@@ -17,11 +21,13 @@
  *                       (use service_role key for bulk inserts — bypasses RLS)
  */
 
-import { createReadStream, existsSync, mkdirSync } from 'fs';
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { createReadStream, createWriteStream, existsSync, mkdirSync } from 'fs';
+import { mkdir, open, rename, rm, writeFile } from 'fs/promises';
 import { createInterface } from 'readline';
-import { dirname, join } from 'path';
+import { basename, dirname, join } from 'path';
 import { tmpdir } from 'os';
+import { pipeline } from 'stream/promises';
+import { createInflateRaw } from 'zlib';
 
 const GTFS_ZIP_URL = 'https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip';
 
@@ -60,7 +66,8 @@ const SHAPE_TOLERANCE_M = parseFloat(
 interface Loader {
 	truncate(table: string): Promise<void>;
 	upsertBatch(table: string, rows: Record<string, unknown>[]): Promise<void>;
-	markSeeded(): Promise<void>;
+	/** Called once after every table has loaded: indexes, the seeded marker, and (SQLite) the swap. */
+	finish(): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,81 +75,103 @@ interface Loader {
 // ---------------------------------------------------------------------------
 
 /**
- * Bumped whenever the table definitions below change. `CREATE TABLE IF NOT EXISTS` silently
- * keeps an existing table with the old columns, so without this a schema change appears to
- * load fine and then fails on insert (or worse, quietly writes the wrong shape of data). On a
- * mismatch we drop and rebuild — every table here is derived from the GTFS feed and carries no
- * state worth preserving.
+ * Bumped whenever the table definitions below change. Every load now builds a fresh file, so
+ * this no longer gates a rebuild; it is recorded in _meta so a database says what made it.
  */
 const SCHEMA_VERSION = '2';
 
+/** Column order per table, matching both the CREATE TABLE below and the import transforms. */
+const COLUMNS: Record<string, string[]> = {
+	stops: ['stop_id', 'stop_code', 'stop_name', 'stop_lat', 'stop_lon'],
+	routes: ['route_id', 'route_short_name', 'route_long_name', 'agency_id'],
+	trips: ['trip_id', 'route_id', 'service_id', 'trip_headsign', 'direction_id', 'shape_id'],
+	shapes: ['shape_id', 'seq', 'lat', 'lon'],
+	stop_times: ['trip_id', 'stop_id', 'stop_sequence', 'arrival_time', 'departure_time'],
+	calendar: ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'],
+	calendar_dates: ['service_id', 'date', 'exception_type'],
+};
+
+/**
+ * Rows per INSERT statement. The client's fixed cost is ~14µs per statement, which across 9.5M
+ * stop_times rows was most of the load; packing rows into multi-row VALUES removes it. Much
+ * larger statements get slower again (6,000 rows each was 4x slower than one row each), so
+ * don't raise this without timing it.
+ */
+const ROWS_PER_STATEMENT = 200;
+
+/**
+ * Builds into `<dbPath>.loading` and renames it over `dbPath` only once everything has loaded.
+ * A failed or killed load therefore never touches the live database, which is also what makes
+ * it safe to switch journalling off while loading. A running gtfsr-stop-times keeps the old
+ * file open, so it serves the old timetable until it is restarted.
+ */
 async function createSqliteLoader(dbPath: string): Promise<Loader> {
 	mkdirSync(dirname(dbPath), { recursive: true });
-	const { createClient } = await import('@libsql/client');
-	const db = createClient({ url: `file:${dbPath}` });
-
-	const existing = await db
-		.execute("SELECT value FROM _meta WHERE key = 'schema_version'")
-		.then((r) => (r.rows[0]?.value as string | undefined) ?? null)
-		.catch(() => null); // _meta itself may not exist yet
-	if (existing !== SCHEMA_VERSION) {
-		if (existing !== null) console.log(`Schema ${existing} != ${SCHEMA_VERSION} — rebuilding tables`);
-		await db.executeMultiple(`
-			DROP TABLE IF EXISTS stops;
-			DROP TABLE IF EXISTS routes;
-			DROP TABLE IF EXISTS trips;
-			DROP TABLE IF EXISTS stop_times;
-			DROP TABLE IF EXISTS calendar;
-			DROP TABLE IF EXISTS calendar_dates;
-			DROP TABLE IF EXISTS shapes;
-			DROP TABLE IF EXISTS _meta;
-		`);
+	const buildPath = `${dbPath}.loading`;
+	for (const p of [buildPath, `${buildPath}-journal`, `${buildPath}-wal`, `${buildPath}-shm`]) {
+		await rm(p, { force: true });
 	}
+	const { createClient } = await import('@libsql/client');
+	const db = createClient({ url: `file:${buildPath}` });
 
 	await db.executeMultiple(`
-		CREATE TABLE IF NOT EXISTS stops (stop_id TEXT PRIMARY KEY, stop_code TEXT, stop_name TEXT, stop_lat REAL, stop_lon REAL);
-		CREATE INDEX IF NOT EXISTS idx_stops_code ON stops(stop_code);
-		CREATE INDEX IF NOT EXISTS idx_stops_name ON stops(stop_name COLLATE NOCASE);
-		CREATE TABLE IF NOT EXISTS routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT);
-		CREATE TABLE IF NOT EXISTS trips (trip_id TEXT PRIMARY KEY, route_id TEXT, service_id TEXT, trip_headsign TEXT, direction_id INTEGER, shape_id TEXT);
-		CREATE INDEX IF NOT EXISTS idx_trips_route ON trips(route_id);
-		CREATE INDEX IF NOT EXISTS idx_trips_service ON trips(service_id);
-		CREATE TABLE IF NOT EXISTS stop_times (trip_id TEXT, stop_id TEXT, stop_sequence INTEGER, arrival_time TEXT, departure_time TEXT, PRIMARY KEY (trip_id, stop_sequence));
-		CREATE INDEX IF NOT EXISTS idx_st_stop ON stop_times(stop_id);
-		CREATE INDEX IF NOT EXISTS idx_st_trip ON stop_times(trip_id);
-		CREATE TABLE IF NOT EXISTS calendar (service_id TEXT PRIMARY KEY, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT);
-		CREATE TABLE IF NOT EXISTS calendar_dates (service_id TEXT, date TEXT, exception_type INTEGER, PRIMARY KEY (service_id, date));
-		CREATE TABLE IF NOT EXISTS shapes (shape_id TEXT, seq INTEGER, lat REAL, lon REAL, PRIMARY KEY (shape_id, seq));
-		CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
+		PRAGMA journal_mode = OFF;
+		PRAGMA synchronous = OFF;
+		PRAGMA cache_size = -262144;
+		PRAGMA temp_store = MEMORY;
+		CREATE TABLE stops (stop_id TEXT PRIMARY KEY, stop_code TEXT, stop_name TEXT, stop_lat REAL, stop_lon REAL);
+		CREATE TABLE routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT);
+		CREATE TABLE trips (trip_id TEXT PRIMARY KEY, route_id TEXT, service_id TEXT, trip_headsign TEXT, direction_id INTEGER, shape_id TEXT);
+		CREATE TABLE stop_times (trip_id TEXT, stop_id TEXT, stop_sequence INTEGER, arrival_time TEXT, departure_time TEXT, PRIMARY KEY (trip_id, stop_sequence));
+		CREATE TABLE calendar (service_id TEXT PRIMARY KEY, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT);
+		CREATE TABLE calendar_dates (service_id TEXT, date TEXT, exception_type INTEGER, PRIMARY KEY (service_id, date));
+		CREATE TABLE shapes (shape_id TEXT, seq INTEGER, lat REAL, lon REAL, PRIMARY KEY (shape_id, seq));
+		CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT);
 	`);
-
-	const INSERT: Record<string, string> = {
-		stops: 'INSERT OR REPLACE INTO stops VALUES (:stop_id,:stop_code,:stop_name,:stop_lat,:stop_lon)',
-		routes: 'INSERT OR REPLACE INTO routes VALUES (:route_id,:route_short_name,:route_long_name,:agency_id)',
-		trips: 'INSERT OR REPLACE INTO trips VALUES (:trip_id,:route_id,:service_id,:trip_headsign,:direction_id,:shape_id)',
-		shapes: 'INSERT OR REPLACE INTO shapes VALUES (:shape_id,:seq,:lat,:lon)',
-		stop_times: 'INSERT OR REPLACE INTO stop_times VALUES (:trip_id,:stop_id,:stop_sequence,:arrival_time,:departure_time)',
-		calendar: 'INSERT OR REPLACE INTO calendar VALUES (:service_id,:monday,:tuesday,:wednesday,:thursday,:friday,:saturday,:sunday,:start_date,:end_date)',
-		calendar_dates: 'INSERT OR REPLACE INTO calendar_dates VALUES (:service_id,:date,:exception_type)'
-	};
 
 	return {
 		async truncate(table) {
 			await db.execute(`DELETE FROM ${table}`);
 		},
 		async upsertBatch(table, rows) {
-			const sql = INSERT[table];
-			const stmts = rows.map((row) => ({ sql, args: row as Record<string, unknown> }));
+			const cols = COLUMNS[table];
+			const head = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES `;
+			const tuple = `(${cols.map(() => '?').join(',')})`;
+			const stmts = [];
+			for (let i = 0; i < rows.length; i += ROWS_PER_STATEMENT) {
+				const chunk = rows.slice(i, i + ROWS_PER_STATEMENT);
+				const args: unknown[] = [];
+				for (const row of chunk) for (const c of cols) args.push(row[c] ?? null);
+				stmts.push({ sql: head + Array(chunk.length).fill(tuple).join(','), args });
+			}
 			await db.batch(stmts as never);
 		},
-		async markSeeded() {
+		async finish() {
+			// Built after the data rather than maintained row by row during it. No index on
+			// stop_times(trip_id): the primary key already leads with it.
+			const t0 = Date.now();
+			await db.executeMultiple(`
+				CREATE INDEX idx_stops_code ON stops(stop_code);
+				CREATE INDEX idx_stops_name ON stops(stop_name COLLATE NOCASE);
+				CREATE INDEX idx_trips_route ON trips(route_id);
+				CREATE INDEX idx_trips_service ON trips(service_id);
+				CREATE INDEX idx_st_stop ON stop_times(stop_id);
+			`);
+			console.log(`  ✓ indexes: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 			await db.execute("INSERT OR REPLACE INTO _meta VALUES ('seeded', '1')");
-			// Only recorded on a completed load, so a run that dies partway is rebuilt next time
-			// rather than being mistaken for an up-to-date schema.
 			await db.execute({
 				sql: "INSERT OR REPLACE INTO _meta VALUES ('schema_version', ?)",
 				args: [SCHEMA_VERSION],
 			});
+			db.close();
+
+			// SQLite would replay a leftover WAL from the old file into the new one, so never
+			// swap underneath one. The live database here uses a rollback journal, which is fine.
+			if (existsSync(`${dbPath}-wal`)) {
+				throw new Error(`${dbPath}-wal exists; not swapping. The new database is at ${buildPath}.`);
+			}
+			await rename(buildPath, dbPath);
+			console.log(`  ✓ swapped into ${dbPath} — restart gtfsr-stop-times to serve it`);
 		}
 	};
 }
@@ -171,7 +200,7 @@ async function createSupabaseLoader(url: string, key: string): Promise<Loader> {
 			const { error } = await sb.from(table).upsert(rows, { ignoreDuplicates: false });
 			if (error) throw new Error(`Supabase upsert failed on ${table}: ${error.message}`);
 		},
-		async markSeeded() {
+		async finish() {
 			await sb.from('_meta').upsert({ key: 'seeded', value: '1' });
 		}
 	};
@@ -220,7 +249,8 @@ async function* readCsvRows(filePath: string): AsyncGenerator<Record<string, str
 // Import functions
 // ---------------------------------------------------------------------------
 
-const BATCH_SIZE = 2000;
+/** Rows per loader.upsertBatch call, which the SQLite loader runs as one transaction. */
+const BATCH_SIZE = 20000;
 
 async function batchImport(
 	loader: Loader,
@@ -388,15 +418,67 @@ async function importAll(loader: Loader, dir: string) {
 // ZIP extraction
 // ---------------------------------------------------------------------------
 
+/**
+ * Extracts the zip with node's own zlib rather than shelling out to `unzip`, which the
+ * production box doesn't have. Reads the central directory and streams each entry to disk, so
+ * the ~500 MB stop_times.txt never sits in memory. Handles the two methods GTFS zips use
+ * (stored and deflate) and not zip64, which the NTA zip doesn't need — every member is <4 GB.
+ * Entries land flat in outDir by basename, which also keeps a crafted name from escaping it.
+ */
 async function extractZip(zipPath: string, outDir: string): Promise<string> {
 	await mkdir(outDir, { recursive: true });
-	const { execSync } = await import('child_process');
+	const fh = await open(zipPath, 'r');
 	try {
-		execSync(`unzip -o "${zipPath}" -d "${outDir}"`, { stdio: 'inherit' });
-		return outDir;
-	} catch {
-		throw new Error('Could not extract zip — ensure `unzip` is on PATH, or use --dir.');
+		const { size } = await fh.stat();
+		// The end-of-central-directory record is 22 bytes plus a comment of up to 64 KB.
+		const tail = Buffer.alloc(Math.min(size, 22 + 0xffff));
+		await fh.read(tail, 0, tail.length, size - tail.length);
+		const eocd = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+		if (eocd < 0) throw new Error(`${zipPath} is not a zip file`);
+		const count = tail.readUInt16LE(eocd + 10);
+		const cdSize = tail.readUInt32LE(eocd + 12);
+		const cdOffset = tail.readUInt32LE(eocd + 16);
+		if (count === 0xffff || cdOffset === 0xffffffff) throw new Error('zip64 archives are not supported');
+
+		const cd = Buffer.alloc(cdSize);
+		await fh.read(cd, 0, cdSize, cdOffset);
+		for (let i = 0, p = 0; i < count; i++) {
+			if (cd.readUInt32LE(p) !== 0x02014b50) throw new Error('corrupt zip central directory');
+			const method = cd.readUInt16LE(p + 10);
+			const compressedSize = cd.readUInt32LE(p + 20);
+			const uncompressedSize = cd.readUInt32LE(p + 24);
+			const nameLen = cd.readUInt16LE(p + 28);
+			const localOffset = cd.readUInt32LE(p + 42);
+			const name = cd.toString('utf8', p + 46, p + 46 + nameLen);
+			p += 46 + nameLen + cd.readUInt16LE(p + 30) + cd.readUInt16LE(p + 32);
+			if (name.endsWith('/')) continue;
+
+			// The local header's name and extra lengths can differ from the central directory's.
+			const local = Buffer.alloc(30);
+			await fh.read(local, 0, 30, localOffset);
+			if (local.readUInt32LE(0) !== 0x04034b50) throw new Error(`corrupt zip entry ${name}`);
+			const dataStart = localOffset + 30 + local.readUInt16LE(26) + local.readUInt16LE(28);
+
+			const destPath = join(outDir, basename(name));
+			const dest = createWriteStream(destPath);
+			if (compressedSize === 0) {
+				dest.end();
+				await new Promise((resolve) => dest.on('close', resolve));
+			} else {
+				const src = createReadStream(zipPath, { start: dataStart, end: dataStart + compressedSize - 1 });
+				if (method === 8) await pipeline(src, createInflateRaw(), dest);
+				else if (method === 0) await pipeline(src, dest);
+				else throw new Error(`zip entry ${name} uses unsupported compression method ${method}`);
+			}
+			if (dest.bytesWritten !== uncompressedSize) {
+				throw new Error(`zip entry ${name}: wrote ${dest.bytesWritten} bytes, expected ${uncompressedSize}`);
+			}
+			console.log(`  ${basename(name)} (${(uncompressedSize / 1_048_576).toFixed(1)} MB)`);
+		}
+	} finally {
+		await fh.close();
 	}
+	return outDir;
 }
 
 async function downloadZip(url: string): Promise<string> {
@@ -445,7 +527,7 @@ async function main() {
 
 	console.log('\nImporting…');
 	await importAll(loader, gtfsDir);
-	await loader.markSeeded();
+	await loader.finish();
 	console.log('\nDone!');
 
 	if (tempZip) await rm(tempZip, { force: true });
