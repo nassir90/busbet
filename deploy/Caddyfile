@@ -1,0 +1,89 @@
+{
+	admin off
+	auto_https off
+}
+
+# Loopback only — the cloudflared tunnel is the sole ingress.
+# Strips the /<service>/ prefix so the Android app base URLs work
+# with just a hostname swap from lab.
+http://:8080 {
+	bind 127.0.0.1
+
+	# Access log without anything that identifies the client: the privacy policy says
+	# the servers keep no IP addresses, and the IP also arrives in Cf-Connecting-Ip and
+	# X-Forwarded-For, so every request header goes too. Tail with
+	# journalctl --user -fu caddy.
+	log {
+		output stderr
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>remote_port delete
+				request>client_ip delete
+				request>headers delete
+				request>tls delete
+				resp_headers delete
+			}
+		}
+	}
+
+	# Static pages (privacy policy). Play requires a publicly reachable policy URL.
+	# Served at the root as /privacy-policy, which is the URL that goes in the Play listing.
+	# The old /bus-dashboard-for-dublin/ path stays because it is already published; the
+	# /iompar/ path exists because the generator writes there and it used to fall through to
+	# the catch-all below, answering 200 with the body "busbet".
+	handle /privacy-policy {
+		root * {env.HOME}/srv/www/iompar
+		try_files {path} {path}.html
+		file_server
+	}
+	handle_path /iompar/* {
+		root * {env.HOME}/srv/www/iompar
+		try_files {path} {path}.html
+		file_server
+	}
+	handle_path /bus-dashboard-for-dublin/* {
+		root * {env.HOME}/srv/www/bus-dashboard-for-dublin
+		try_files {path} {path}.html
+		file_server
+	}
+
+	handle_path /gtfsr-stop-times/* {
+		reverse_proxy 127.0.0.1:8110
+	}
+	handle_path /tfi-tenant-api/* {
+		reverse_proxy 127.0.0.1:8120
+	}
+	# The web app used to live here. It now owns / (below); old links and bookmarks follow it,
+	# and its ?code= / ?route= URLs are still understood there.
+	@oldTfi path /tfi /tfi/*
+	redir @oldTfi /?{query} 301
+	handle_path /historical-view/* {
+		reverse_proxy 127.0.0.1:8130
+	}
+	# APKs: /artefacts/release/<version>.apk and /artefacts/debug/<version>.apk.
+	handle /artefacts/* {
+		root * {env.HOME}/srv/www
+		header *.apk Content-Type application/vnd.android.package-archive
+		file_server browse
+	}
+
+	# The Android app's landing page (scripts/gen-site.py), moved from / to /app/. Its screenshots
+	# are linked relatively (screens/*.webp) and its APK and policy links absolutely, so serving it
+	# under a stripped prefix is all it needs. Old absolute links to /screens/ are sent along.
+	redir /app /app/ 308
+	handle_path /app/* {
+		root * {env.HOME}/srv/www/site
+		try_files {path} {path}/index.html
+		file_server
+	}
+	redir /screens/* /app{uri} 301
+
+	# The web app (tfi/server.js, :8108) owns / and its API proxy at /api/*. Not handle_path:
+	# server.js expects the /api/ prefix. Everything else unmatched lands here too, and server.js
+	# answers 404 for any path that isn't its index, hashed assets or API.
+	handle {
+		reverse_proxy 127.0.0.1:8108
+	}
+}

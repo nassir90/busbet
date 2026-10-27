@@ -1,14 +1,23 @@
 [Unit]
-Description=TFI app
-After=network.target
+Description=Iompar web app (tfi): static site + read-only API proxy
+After=network.target gtfsr-stop-times.service
+
+# systemd *user* unit, as installed on the GCP box under ~/.config/systemd/user/.
+# Serves tfi/dist (built locally with `npm run build`; the box needs no node_modules) and proxies
+# api/* to gtfsr-stop-times on loopback. Caddy sends / and /api/* here.
 
 [Service]
-Slice=lab.slice
 Type=simple
-WorkingDirectory=/home/lab/Projects/busbet/tfi
-ExecStart=/usr/bin/node server.js
-EnvironmentFile=/home/lab/Projects/ports.env
-Environment=GTFSR_STOP_TIMES_URL=http://localhost:8110
+WorkingDirectory=%h/Projects/busbet/tfi
+EnvironmentFile=%h/Projects/ports.env
+# IPv4 literal, not localhost: gtfsr-stop-times binds 127.0.0.1 only.
+Environment=GTFSR_STOP_TIMES_URL=http://127.0.0.1:8110
+Environment=TFI_HOST=127.0.0.1
+# The process holds index.html and nothing else; the heap stays small. Capping it keeps a leak
+# from pushing gtfsr-stop-times (which shares this 4 GB box) into swap.
+ExecStart=%h/.local/bin/node --max-old-space-size=64 server.js
+MemoryHigh=96M
+MemoryMax=160M
 Restart=on-failure
 RestartSec=5
 
