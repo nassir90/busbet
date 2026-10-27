@@ -23,18 +23,40 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 		},
 
 		async searchStops(query: string) {
-			const like = `%${query.toUpperCase()}%`;
+			// Most specific first: the stop whose number is exactly the query, then numbers
+			// starting with it (shortest first, so "135" gives 1350 before 13501), then names
+			// starting with it, then a word in the name starting with it, then anything containing
+			// it — "11358" for "135" belongs at the bottom, not wherever the table put it.
+			// Without an ORDER BY the 20 rows were simply the first 20 matches in table order.
+			const q = query.toUpperCase().replace(/[\\%_]/g, (c) => `\\${c}`);
 			const r = await db.execute({
-				sql: `SELECT s.stop_id, s.stop_code, s.stop_name, s.stop_lat, s.stop_lon,
+				// Rank and cut to 20 first, then work out routes for those 20 only: the routes
+				// subquery walks stop_times, and a short query can match thousands of stops.
+				sql: `SELECT m.stop_id, m.stop_code, m.stop_name, m.stop_lat, m.stop_lon,
 				             (SELECT GROUP_CONCAT(DISTINCT r.route_short_name)
 				              FROM stop_times st
 				              JOIN trips t ON t.trip_id = st.trip_id
 				              JOIN routes r ON r.route_id = t.route_id
-				              WHERE st.stop_id = s.stop_id) AS routes
-				      FROM stops s
-				      WHERE UPPER(s.stop_name) LIKE ? OR s.stop_code LIKE ?
-				      LIMIT 20`,
-				args: [like, like]
+				              WHERE st.stop_id = m.stop_id) AS routes
+				      FROM (
+				        SELECT s.*,
+				               CASE
+				                 WHEN UPPER(s.stop_code) = :exact THEN 0
+				                 WHEN UPPER(s.stop_code) LIKE :prefix ESCAPE '\\' THEN 1
+				                 WHEN UPPER(s.stop_name) LIKE :prefix ESCAPE '\\' THEN 2
+				                 WHEN UPPER(s.stop_name) LIKE :word ESCAPE '\\' THEN 3
+				                 WHEN UPPER(s.stop_name) LIKE :any ESCAPE '\\' THEN 4
+				                 ELSE 5
+				               END AS rank
+				        FROM stops s
+				        WHERE UPPER(s.stop_name) LIKE :any ESCAPE '\\' OR UPPER(s.stop_code) LIKE :any ESCAPE '\\'
+				        ORDER BY rank, CASE WHEN rank BETWEEN 2 AND 4 THEN s.stop_name END,
+				                 length(s.stop_code), s.stop_code, s.stop_name
+				        LIMIT 20
+				      ) m
+				      ORDER BY m.rank, CASE WHEN m.rank BETWEEN 2 AND 4 THEN m.stop_name END,
+				               length(m.stop_code), m.stop_code, m.stop_name`,
+				args: { exact: query.toUpperCase(), prefix: `${q}%`, word: `% ${q}%`, any: `%${q}%` }
 			});
 			return r.rows.map((row) => ({
 				stop_id: row.stop_id as string,

@@ -94,7 +94,15 @@ export function StopView({ code }: { code: string }) {
 				<div class="filter">
 					<div class="section-head">
 						<span class="label">Show routes</span>
-						{hidden.size > 0 && <button class="text-btn" onClick={() => setHidden(new Set())}>Show all</button>}
+						{/* Always laid out, only hidden: popping in made the header taller and shifted
+						    the chips and the board down under the pointer on the first toggle. */}
+						<button
+							class="text-btn"
+							style={{ visibility: hidden.size > 0 ? 'visible' : 'hidden' }}
+							onClick={() => setHidden(new Set())}
+						>
+							Show all
+						</button>
 					</div>
 					<div class="filter-chips">
 						{allRoutes.map((r) => (

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { type BatchDeparturesResponse, paths, prefetch, seed, useApi } from '../api';
 import { DepartureRow, Empty, MenuIcon, StaleBadge, TopBar } from '../components';
 import { href, Link, useNavReady } from '../router';
-import { type Favourite, updateFavourite, useFavourites, useHistory, useSettings } from '../store';
+import { type Favourite, updateFavourite, useFavourites, useSettings } from '../store';
 import { useNowMinutes } from '../time';
-import { HistoryList, Search } from './Search';
+import { Search } from './Search';
 
 const PER_CARD = 3;
 
@@ -36,7 +36,6 @@ function usePosition(enabled: boolean) {
 export function Home() {
 	const [searching, setSearching] = useState(false);
 	const favourites = useFavourites();
-	const history = useHistory();
 	const settings = useSettings();
 	const now = useNowMinutes();
 	const pos = usePosition(settings.sortByDistance);
@@ -101,7 +100,6 @@ export function Home() {
 						) : (
 							<Empty>Search for a stop or route. Star a stop to keep it here with its next departures.</Empty>
 						)}
-						{history.length > 0 && <HistoryList entries={history.slice(0, 6)} />}
 					</>
 				)}
 			</main>

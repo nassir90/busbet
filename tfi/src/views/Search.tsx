@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { fetchJson, paths, prefetch, type RouteDirection, type Stop } from '../api';
+import { Star } from '../components';
 import { href, Link, navigate } from '../router';
-import { forgetHistory, recordHistory, useHistory, type HistoryEntry } from '../store';
+import { addFavourite, forgetHistory, recordHistory, removeFavourite, useFavourites, useHistory, type HistoryEntry } from '../store';
 
 const MAX_CHIPS = 6;
 
@@ -44,8 +45,11 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 	const [q, setQ] = useState('');
 	const [res, setRes] = useState<Results | null>(null);
 	const [failed, setFailed] = useState(false);
+	// Recent searches belong to the field: they open under it while it has focus and is empty.
+	const [focused, setFocused] = useState(false);
 	const seq = useRef(0);
 	const history = useHistory();
+	const favourites = useFavourites();
 	const input = useRef<HTMLInputElement>(null);
 
 	// "/" focuses search from anywhere on the page, as on most desktop sites.
@@ -86,7 +90,7 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 	const lower = query.toLowerCase();
 	const matchingHistory = history.filter((h) =>
 		(h.kind === 'stop' ? `${h.name} ${h.code}` : `${h.route} ${h.label}`).toLowerCase().includes(lower),
-	).slice(0, query ? 3 : 6);
+	).slice(0, 3);
 
 	const groups = res ? groupRoutes(res.routes, res.q.toLowerCase()) : [];
 
@@ -98,8 +102,21 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 		if (first) { recordStop(first); navigate(href.stop(first.stop_code)); }
 	};
 
+	const showRecent = !query && focused && history.length > 0;
+
 	return (
-		<div class="search">
+		<div
+			class="search"
+			onFocusIn={() => setFocused(true)}
+			// Moving focus to a row or button inside the panel keeps it open; leaving closes it.
+			onFocusOut={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false); }}
+			// Anywhere in the panel, not just the field: focus is on a star after starring a stop.
+			// The first Escape clears the query and returns to the field; the next leaves it.
+			onKeyDown={(e) => {
+				if (e.key !== 'Escape') return;
+				if (q) { setQ(''); input.current?.focus(); } else input.current?.blur();
+			}}
+		>
 			<form role="search" onSubmit={onSubmit}>
 				<input
 					ref={input}
@@ -112,9 +129,14 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 					aria-label="Search stops and routes"
 					value={q}
 					onInput={(e) => setQ((e.target as HTMLInputElement).value)}
-					onKeyDown={(e) => { if (e.key === 'Escape') setQ(''); }}
 				/>
 			</form>
+
+			{showRecent && (
+				<div class="results dropdown">
+					<HistoryList entries={history.slice(0, 6)} />
+				</div>
+			)}
 
 			{query && (
 				<div class="results">
@@ -143,22 +165,35 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 						<section>
 							<h2 class="label">Stops</h2>
 							<ul class="list">
-								{res.stops.map((s) => (
-									<li key={s.stop_id}>
-										<Link
-											class="row"
-											href={href.stop(s.stop_code)}
-											prefetch={() => prefetch(paths.departures(s.stop_code))}
-											onClick={() => recordStop(s)}
-										>
-											<span class="row-main">
-												<span>{s.stop_name}</span>
-												<span class="code">{s.stop_code}</span>
-											</span>
-											<Chips routes={s.routes} />
-										</Link>
-									</li>
-								))}
+								{res.stops.map((s) => {
+									const fav = favourites.some((f) => f.code === s.stop_code);
+									return (
+										<li key={s.stop_id} class="with-action">
+											<Link
+												class="row"
+												href={href.stop(s.stop_code)}
+												prefetch={() => prefetch(paths.departures(s.stop_code))}
+												onClick={() => recordStop(s)}
+											>
+												<span class="row-main">
+													<span>{s.stop_name}</span>
+													<span class="code">{s.stop_code}</span>
+												</span>
+												<Chips routes={s.routes} />
+											</Link>
+											<button
+												class={`icon-btn subtle${fav ? ' on' : ''}`}
+												aria-label={`${fav ? 'Remove' : 'Add'} ${s.stop_name} (${s.stop_code}) ${fav ? 'from' : 'to'} favourites`}
+												aria-pressed={fav}
+												onClick={() => fav
+													? removeFavourite(s.stop_code)
+													: addFavourite({ code: s.stop_code, name: s.stop_name, lat: s.stop_lat, lon: s.stop_lon })}
+											>
+												<Star on={fav} />
+											</button>
+										</li>
+									);
+								})}
 							</ul>
 						</section>
 					)}
