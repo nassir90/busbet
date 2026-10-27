@@ -1,34 +1,51 @@
 import { useEffect, useState } from 'preact/hooks';
 
 /**
- * localStorage-backed lists. Reads and writes are wrapped: storage can be absent or throw (private
- * windows, blocked site data), and the site must still work, just without remembering anything.
+ * Where user data (favourites, history, settings) is kept. The only implementation is the browser's
+ * localStorage. The intended successor is a hosted, signed-in store shared with the mobile app, so
+ * nothing outside this file touches storage: the views only see the stores below, which keep a
+ * synchronous in-memory value and write through. A remote backend would `load` the cached copy,
+ * `save` in the background, and call `onChange` when the server sends something newer.
  */
-function read<T>(key: string, fallback: T): T {
-	try {
-		const raw = localStorage.getItem(key);
-		return raw == null ? fallback : (JSON.parse(raw) as T);
-	} catch {
-		return fallback;
-	}
+export interface Backend {
+	load(key: string): unknown | undefined;
+	save(key: string, value: unknown): void;
+	/** Changes made elsewhere: another tab now, another device later. */
+	onChange(key: string, cb: () => void): void;
 }
 
-function write(key: string, value: unknown) {
-	try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* not persisted */ }
-}
+// Reads and writes are wrapped: storage can be absent or throw (private windows, blocked site
+// data), and the site must still work, just without remembering anything.
+const localBackend: Backend = {
+	load(key) {
+		try {
+			const raw = localStorage.getItem(key);
+			return raw == null ? undefined : JSON.parse(raw);
+		} catch {
+			return undefined;
+		}
+	},
+	save(key, value) {
+		try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* not persisted */ }
+	},
+	onChange(key, cb) {
+		window.addEventListener('storage', (e) => { if (e.key === key) cb(); });
+	},
+};
+
+const backend: Backend = localBackend;
 
 function createStore<T>(key: string, fallback: T, migrate: (v: T) => T = (v) => v) {
-	let value = migrate(read(key, fallback));
+	const read = () => migrate((backend.load(key) as T | undefined) ?? fallback);
+	let value = read();
 	const subs = new Set<(v: T) => void>();
 	const set = (next: T) => {
 		value = next;
-		write(key, next);
+		backend.save(key, next);
 		subs.forEach((s) => s(next));
 	};
-	// Other tabs.
-	window.addEventListener('storage', (e) => {
-		if (e.key !== key) return;
-		value = migrate(read(key, fallback));
+	backend.onChange(key, () => {
+		value = read();
 		subs.forEach((s) => s(value));
 	});
 	const use = (): T => {
