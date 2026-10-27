@@ -81,26 +81,22 @@ export function Home() {
 			<main class="page">
 				<Search onQuery={setSearching} />
 				{!searching && (
-					<>
-						{favourites.length > 0 ? (
-							<div class="cards">
-								{ordered.map(({ f, dist }) => (
-									<FavCard
-										key={f.code}
-										fav={f}
-										data={batch.data?.results[f.code]}
-										missing={batch.data?.missing.includes(f.code) ?? false}
-										loading={batch.data === undefined && batch.error == null}
-										failed={batch.error != null}
-										now={now}
-										distance={dist}
-									/>
-								))}
-							</div>
-						) : (
-							<Empty>Search for a stop or route. Star a stop to keep it here with its next departures.</Empty>
-						)}
-					</>
+					favourites.length > 0 && (
+						<div class="cards">
+							{ordered.map(({ f, dist }) => (
+								<FavCard
+									key={f.code}
+									fav={f}
+									data={batch.data?.results[f.code]}
+									missing={batch.data?.missing.includes(f.code) ?? false}
+									loading={batch.data === undefined && batch.error == null}
+									failed={batch.error != null}
+									now={now}
+									distance={dist}
+								/>
+							))}
+						</div>
+					)
 				)}
 			</main>
 		</>
