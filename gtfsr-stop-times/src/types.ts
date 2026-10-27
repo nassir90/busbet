@@ -6,6 +6,12 @@ export interface Stop {
 	stop_lon?: number;
 	/** Distinct route short names that serve this stop. Populated by search; may be absent elsewhere. */
 	routes?: string[];
+	/**
+	 * Distinct GTFS route_type values of the routes serving this stop (0 tram/Luas, 2 rail, 3 bus,
+	 * …). Lets a client pick a mode logo for the stop without a second lookup. Absent on
+	 * deployments that predate this field; a stop is effectively single-mode in practice.
+	 */
+	route_types?: number[];
 }
 
 export interface StopTime {
@@ -21,6 +27,8 @@ export interface Departure {
 	stop_id: string;
 	stop_sequence: number;
 	route_short_name: string;
+	/** GTFS route_type of the departing service (0 tram/Luas, 2 rail, 3 bus, …). */
+	route_type: number | null;
 	direction_id: number;
 	trip_headsign: string;
 	scheduled_departure: string;   // HH:MM
@@ -31,6 +39,8 @@ export interface Departure {
 
 export interface RouteDirection {
 	route_short_name: string;
+	/** GTFS route_type of this route (0 tram/Luas, 2 rail, 3 bus, …). */
+	route_type: number | null;
 	direction_id: number;
 	from_stop: string;
 	to_stop: string;
@@ -60,6 +70,8 @@ export interface TripStop {
 export interface TripDetail {
 	trip_id: string;
 	route_short_name: string;
+	/** GTFS route_type of this trip's route (0 tram/Luas, 2 rail, 3 bus, …). */
+	route_type: number | null;
 	trip_headsign: string;
 	direction_id: number;
 	stops: TripStop[];

@@ -2,6 +2,7 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'org.jetbrains.kotlin.plugin.compose'
+    id 'io.github.takahirom.roborazzi'
 }
 
 // Read secrets from local.properties (gitignored) so they're never committed.
@@ -11,26 +12,38 @@ if (localPropsFile.exists()) localPropsFile.withInputStream { localProps.load(it
 
 android {
     namespace 'iompar.mpts.ie'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "iompar.mpts.ie"
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         // Bumped once per ticket implemented, not once per release: Sentry groups events by
         // release, so a version that only moves when someone remembers to move it puts weeks of
         // unrelated builds into one bucket and makes "did that fix land?" unanswerable.
-        versionCode 5
-        versionName "1.4"
+        versionCode 16
+        versionName "1.15"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // Backend URLs are no longer build constants — they're runtime config, editable from
         // Settings without a rebuild. See BackendConfig.kt (DEFAULT_BACKEND_ROOT) for the default.
+    }
 
-        // Sentry DSN — set `sentry.dsn=...` in local.properties to enable crash/error
-        // reporting. Empty by default, which makes the Sentry SDK a no-op.
-        buildConfigField "String", "SENTRY_DSN", "\"${localProps.getProperty('sentry.dsn', '')}\""
+    // play: the Play Store and the hosted APK. Carries Sentry, initialised in debug builds only.
+    // fdroid: no crash-reporting SDK at all, so F-Droid's scanner finds nothing to flag.
+    flavorDimensions = ["distribution"]
+    productFlavors {
+        play {
+            dimension "distribution"
+            isDefault true
+            // Sentry DSN — set `sentry.dsn=...` in local.properties to enable crash/error
+            // reporting. Empty by default, which makes the Sentry SDK a no-op.
+            buildConfigField "String", "SENTRY_DSN", "\"${localProps.getProperty('sentry.dsn', '')}\""
+        }
+        fdroid {
+            dimension "distribution"
+        }
     }
 
     // Upload key for Play. Everything comes from local.properties (gitignored) so neither the
@@ -63,12 +76,26 @@ android {
             }
         }
     }
+    // AGP otherwise embeds a dependency list in the APK encrypted with a Google key, which
+    // F-Droid rejects as an opaque blob. Play reads the copy in the bundle, which stays.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = true
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
         jvmTarget = '17'
+    }
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            all {
+                maxHeapSize = '3g'
+            }
+        }
     }
     buildFeatures {
         compose true
@@ -111,7 +138,7 @@ dependencies {
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
     implementation 'androidx.work:work-runtime-ktx:2.9.1'
 
-    implementation 'io.sentry:sentry-android:7.18.0'
+    playImplementation 'io.sentry:sentry-android:7.18.0'
 
     // On-device MCP server + HTTP API. The MCP SDK pulls Ktor 3.2.3 transitively; we pin all Ktor
     // artifacts to that exact version to avoid the known SSE binary-incompat NoSuchMethodError.
@@ -128,4 +155,12 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2'
     testImplementation 'io.ktor:ktor-server-test-host:3.2.3'
+
+    testImplementation composeBom
+    testImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+    testImplementation 'org.robolectric:robolectric:4.17'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi:1.76.0'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi-compose:1.76.0'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi-junit-rule:1.76.0'
 }

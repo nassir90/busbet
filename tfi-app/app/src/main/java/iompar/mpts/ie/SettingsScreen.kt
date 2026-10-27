@@ -9,11 +9,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
@@ -24,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -52,8 +55,8 @@ fun SettingsScreen(
     settingsStore: SettingsStore,
     serverSettingsStore: ServerSettingsStore,
     backendConfigStore: BackendConfigStore,
-    onOpenPrivacy: () -> Unit,
     onBack: () -> Unit,
+    onOpenFeedback: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -66,6 +69,7 @@ fun SettingsScreen(
 
     val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
     val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
+    val themeMode by paletteStore.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val allPalettes = PRESETS + customPalettes
 
     val configBackupStore = remember(paletteStore, settingsStore) {
@@ -240,8 +244,32 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp)
                 .fillMaxSize(),
         ) {
+            // ── Feedback ─────────────────────────────────────────────────────
+            // First, above everything else: the one thing here that isn't a preference.
+            Button(
+                onClick = onOpenFeedback,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            ) {
+                Icon(Icons.Filled.Campaign, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Send feedback")
+            }
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(8.dp))
+
             // ── Theme ────────────────────────────────────────────────────────
             SectionHeader("Theme")
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                val modes = listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark")
+                modes.forEachIndexed { i, (mode, label) ->
+                    SegmentedButton(
+                        selected = themeMode == mode,
+                        onClick = { scope.launch { paletteStore.setThemeMode(mode) } },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = modes.size),
+                    ) { Text(label) }
+                }
+            }
             allPalettes.forEach { p ->
                 PaletteRow(
                     palette = p,
@@ -252,7 +280,7 @@ fun SettingsScreen(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(
+            Button(
                 onClick = {
                     val base = resolvePalette(selectedId, customPalettes)
                     editing = duplicatePalette(base, "My palette")
@@ -323,7 +351,7 @@ fun SettingsScreen(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Slider(
+                PlainSlider(
                     value = farStopThresholdM.toFloat(),
                     onValueChange = { scope.launch { settingsStore.setFarStopThresholdM(it.toInt()) } },
                     valueRange = 1000f..20000f,
@@ -372,7 +400,7 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Slider(
+                        PlainSlider(
                             value = routeLineDistanceM.toFloat(),
                             onValueChange = { scope.launch { settingsStore.setRouteLineDistanceM(it.toInt()) } },
                             valueRange = MIN_ROUTE_LINE_DISTANCE_M.toFloat()..MAX_ROUTE_LINE_DISTANCE_M.toFloat(),
@@ -396,7 +424,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Slider(
+                    PlainSlider(
                         value = busDisplayThresholdMin.toFloat(),
                         onValueChange = { scope.launch { settingsStore.setBusDisplayThresholdMin(it.toInt()) } },
                         valueRange = 5f..120f,
@@ -425,7 +453,7 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
+                Button(
                     onClick = { exportLauncher.launch(defaultConfigFileName()) },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -433,7 +461,7 @@ fun SettingsScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Export")
                 }
-                OutlinedButton(
+                Button(
                     onClick = { importLauncher.launch(arrayOf("application/json")) },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -463,9 +491,13 @@ fun SettingsScreen(
 
             // ── About ────────────────────────────────────────────────────────
             // Play requires the privacy policy to be reachable from inside the app, not only
-            // from the store listing.
+            // from the store listing. This opens the hosted page rather than a bundled copy, so
+            // what the user reads is the current policy and not the one their build shipped with.
             SectionHeader("About")
-            TextButton(onClick = onOpenPrivacy, modifier = Modifier.padding(vertical = 4.dp)) {
+            TextButton(
+                onClick = { openPrivacyPolicy(context) },
+                modifier = Modifier.padding(vertical = 4.dp),
+            ) {
                 Text("Privacy policy")
             }
 
@@ -865,7 +897,7 @@ private fun ColorPickerDialog(
 private fun ChannelSlider(label: String, value: Float, tint: Color, onChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.width(16.dp), color = tint, fontWeight = FontWeight.Bold)
-        Slider(
+        PlainSlider(
             value = value,
             onValueChange = onChange,
             valueRange = 0f..255f,
@@ -874,6 +906,55 @@ private fun ChannelSlider(label: String, value: Float, tint: Color, onChange: (F
         )
         Text(value.toInt().toString(), Modifier.width(36.dp), style = MaterialTheme.typography.labelMedium)
     }
+}
+
+/**
+ * A slider drawn plainly: a round thumb on a thin track, nothing else.
+ *
+ * Material 3 (1.3) draws a dot for every step and another at the end, uses a tall bar for the
+ * thumb with a gap cut into the track on each side, and halves that bar's width while it's being
+ * dragged. With 18 to 28 steps on each settings slider it read as a dotted ruler rather than a
+ * control. Steps still snap; they just aren't drawn.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlainSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    steps: Int = 0,
+    enabled: Boolean = true,
+    colors: SliderColors = SliderDefaults.colors(),
+) {
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        valueRange = valueRange,
+        steps = steps,
+        colors = colors,
+        thumb = {
+            Box(
+                Modifier
+                    .size(20.dp)
+                    .shadow(1.dp, CircleShape)
+                    .background(if (enabled) colors.thumbColor else colors.disabledThumbColor, CircleShape),
+            )
+        },
+        track = { state ->
+            SliderDefaults.Track(
+                sliderState = state,
+                modifier = Modifier.height(4.dp),
+                enabled = enabled,
+                colors = colors,
+                drawStopIndicator = null,
+                drawTick = { _, _ -> },
+                thumbTrackGapSize = 0.dp,
+            )
+        },
+    )
 }
 
 private fun hexOf(c: Int): String = "#%06X".format(c and 0xFFFFFF)

@@ -10,20 +10,26 @@
 # snapshots that gtfsr-stop-times then reads. Nothing else needs updating.
 #
 # Usage:
-#   DEPLOY_HOST=hetzner scripts/rotate-nta-key.sh
+#   DEPLOY_HOST=gcp scripts/rotate-nta-key.sh
 #
 # The new key is read from a prompt, never from argv: an argument would land in shell history
 # and in the process table where any other user on the box can read it.
 #
-# Note on the defaults: on hetzner the services are NOT root system units. They run as systemd
-# *user* units under the `lab` account (lingering enabled), out of ~lab/Projects/busbet. So we ssh
-# in as root and drive the unit with `--machine=lab@.host --user`. Set SERVICE_ACCOUNT="" if you
-# ever move the collector to a real system unit.
+# Note on the defaults: on gcp the services are NOT root system units, and there is no root at
+# all — no passwordless sudo. They run as systemd *user* units owned by the same account you ssh
+# in as (lingering enabled), out of ~/Projects/busbet. So the unit is driven with a plain
+# `systemctl --user`, and DEPLOY_PATH is relative to the remote home directory.
+#
+# SERVICE_ACCOUNT selects how the unit is reached, because all three shapes exist in the wild:
+#   "self"  (default) ssh user owns the unit           -> systemctl --user
+#   "<name>"          ssh as root, unit owned by <name> -> systemctl --machine=<name>@.host --user
+#   ""                a real system unit                -> systemctl
+# The middle form is what the retired hetzner box needed (SERVICE_ACCOUNT=lab, DEPLOY_USER=root).
 #
 # Optional environment:
-#   DEPLOY_USER      ssh user                      (default: root)
-#   DEPLOY_PATH      dir holding the service dirs  (default: /home/lab/Projects/busbet)
-#   SERVICE_ACCOUNT  user whose systemd runs it    (default: lab; "" for a system unit)
+#   DEPLOY_USER      ssh user                      (default: none — let ssh_config decide)
+#   DEPLOY_PATH      dir holding the service dirs  (default: Projects/busbet, relative to $HOME)
+#   SERVICE_ACCOUNT  how to reach the unit         (default: self; see above)
 #   SERVICE_UNIT     systemd unit name             (default: gtfsr-collector.service)
 #   SSH_OPTS         extra ssh options
 #   DRY_RUN=1        print what would happen; touch nothing remote
@@ -32,9 +38,9 @@
 set -euo pipefail
 
 DEPLOY_HOST="${DEPLOY_HOST:-}"
-DEPLOY_USER="${DEPLOY_USER:-root}"
-DEPLOY_PATH="${DEPLOY_PATH:-/home/lab/Projects/busbet}"
-SERVICE_ACCOUNT="${SERVICE_ACCOUNT-lab}"
+DEPLOY_USER="${DEPLOY_USER:-}"
+DEPLOY_PATH="${DEPLOY_PATH:-Projects/busbet}"
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT-self}"
 SERVICE_UNIT="${SERVICE_UNIT:-gtfsr-collector.service}"
 SSH_OPTS="${SSH_OPTS:-}"
 DRY_RUN="${DRY_RUN:-0}"
@@ -48,19 +54,35 @@ die() { echo "rotate-nta-key: $*" >&2; exit 1; }
 [[ -n "$DEPLOY_HOST" ]] || die "DEPLOY_HOST is required (no default, on purpose)"
 [[ -n "$DEPLOY_PATH" ]] || die "DEPLOY_PATH is required (parent dir holding gtfsr-collector/)"
 
-TARGET="$DEPLOY_USER@$DEPLOY_HOST"
+# An empty DEPLOY_USER means "whatever ~/.ssh/config says for this host", which is how `gcp`
+# is set up. Hardcoding a user here would override that and break the common case.
+if [[ -n "$DEPLOY_USER" ]]; then
+	TARGET="$DEPLOY_USER@$DEPLOY_HOST"
+else
+	TARGET="$DEPLOY_HOST"
+fi
+
+# A relative DEPLOY_PATH resolves against the remote user's home, because ssh starts there.
+# That keeps the script working across hosts whose service account has a different name.
 REMOTE_ENV="$DEPLOY_PATH/gtfsr-collector/.env"
 
-# systemctl/journalctl prefix. A user unit under another account is reachable from root only via
-# --machine=<user>@.host --user; plain `systemctl restart` would silently look for a system unit
-# of the same name and fail with "not found".
-if [[ -n "$SERVICE_ACCOUNT" ]]; then
-	SYSTEMCTL="systemctl --machine=$SERVICE_ACCOUNT@.host --user"
-	JOURNALCTL="journalctl --machine=$SERVICE_ACCOUNT@.host --user"
-else
-	SYSTEMCTL="systemctl"
-	JOURNALCTL="journalctl"
-fi
+# systemctl/journalctl prefix — see the SERVICE_ACCOUNT note in the header. Getting this wrong
+# is quiet: plain `systemctl restart` looks for a *system* unit of the same name and fails with
+# "not found" even though the user unit is running fine.
+case "$SERVICE_ACCOUNT" in
+	self)
+		SYSTEMCTL="systemctl --user"
+		JOURNALCTL="journalctl --user"
+		;;
+	"")
+		SYSTEMCTL="systemctl"
+		JOURNALCTL="journalctl"
+		;;
+	*)
+		SYSTEMCTL="systemctl --machine=$SERVICE_ACCOUNT@.host --user"
+		JOURNALCTL="journalctl --machine=$SERVICE_ACCOUNT@.host --user"
+		;;
+esac
 
 # ── Read the new key ────────────────────────────────────────────────────────
 # -s so it never echoes to a shared screen or a scrollback buffer.

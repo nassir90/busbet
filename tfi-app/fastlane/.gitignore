@@ -1,0 +1,6 @@
+# Play service account keys. These are live credentials to the developer account:
+# anyone holding one can publish as you. Keep them outside the repo entirely; this is a
+# backstop, not the plan.
+*.json
+report.xml
+README.md

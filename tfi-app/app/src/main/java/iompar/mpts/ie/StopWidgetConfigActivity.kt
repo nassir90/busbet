@@ -7,7 +7,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -53,7 +52,7 @@ class StopWidgetConfigActivity : ComponentActivity() {
             val paletteStore = remember { PaletteStore(this) }
             val selectedId by paletteStore.selectedId.collectAsState(initial = DEFAULT_PALETTE.id)
             val customPalettes by paletteStore.customPalettes.collectAsState(initial = emptyList())
-            val colors = buildColorScheme(resolvePalette(selectedId, customPalettes), isSystemInDarkTheme())
+            val colors = buildColorScheme(resolvePalette(selectedId, customPalettes), PaletteCache.cachedMode(this).isDark())
             MaterialTheme(colorScheme = colors) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     PickerScreen(

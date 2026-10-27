@@ -78,12 +78,12 @@ interface Loader {
  * Bumped whenever the table definitions below change. Every load now builds a fresh file, so
  * this no longer gates a rebuild; it is recorded in _meta so a database says what made it.
  */
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 
 /** Column order per table, matching both the CREATE TABLE below and the import transforms. */
 const COLUMNS: Record<string, string[]> = {
 	stops: ['stop_id', 'stop_code', 'stop_name', 'stop_lat', 'stop_lon'],
-	routes: ['route_id', 'route_short_name', 'route_long_name', 'agency_id'],
+	routes: ['route_id', 'route_short_name', 'route_long_name', 'agency_id', 'route_type'],
 	trips: ['trip_id', 'route_id', 'service_id', 'trip_headsign', 'direction_id', 'shape_id'],
 	shapes: ['shape_id', 'seq', 'lat', 'lon'],
 	stop_times: ['trip_id', 'stop_id', 'stop_sequence', 'arrival_time', 'departure_time'],
@@ -120,7 +120,7 @@ async function createSqliteLoader(dbPath: string): Promise<Loader> {
 		PRAGMA cache_size = -262144;
 		PRAGMA temp_store = MEMORY;
 		CREATE TABLE stops (stop_id TEXT PRIMARY KEY, stop_code TEXT, stop_name TEXT, stop_lat REAL, stop_lon REAL);
-		CREATE TABLE routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT);
+		CREATE TABLE routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT, route_type INTEGER);
 		CREATE TABLE trips (trip_id TEXT PRIMARY KEY, route_id TEXT, service_id TEXT, trip_headsign TEXT, direction_id INTEGER, shape_id TEXT);
 		CREATE TABLE stop_times (trip_id TEXT, stop_id TEXT, stop_sequence INTEGER, arrival_time TEXT, departure_time TEXT, PRIMARY KEY (trip_id, stop_sequence));
 		CREATE TABLE calendar (service_id TEXT PRIMARY KEY, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date TEXT, end_date TEXT);
@@ -392,7 +392,7 @@ async function importShapes(loader: Loader, dir: string, toleranceM: number) {
 async function importAll(loader: Loader, dir: string) {
 	const tables: Array<[string, (r: Record<string, string>) => Record<string, unknown>]> = [
 		['stops', (r) => ({ stop_id: r.stop_id, stop_code: r.stop_code, stop_name: r.stop_name, stop_lat: parseFloat(r.stop_lat) || null, stop_lon: parseFloat(r.stop_lon) || null })],
-		['routes', (r) => ({ route_id: r.route_id, route_short_name: r.route_short_name, route_long_name: r.route_long_name ?? '', agency_id: r.agency_id ?? '' })],
+		['routes', (r) => ({ route_id: r.route_id, route_short_name: r.route_short_name, route_long_name: r.route_long_name ?? '', agency_id: r.agency_id ?? '', route_type: r.route_type ? parseInt(r.route_type) : null })],
 		['trips', (r) => ({ trip_id: r.trip_id, route_id: r.route_id, service_id: r.service_id, trip_headsign: r.trip_headsign ?? '', direction_id: parseInt(r.direction_id || '0') || 0, shape_id: r.shape_id || null })],
 		['stop_times', (r) => ({ trip_id: r.trip_id, stop_id: r.stop_id, stop_sequence: parseInt(r.stop_sequence || '0'), arrival_time: r.arrival_time, departure_time: r.departure_time })],
 		['calendar', (r) => ({ service_id: r.service_id, monday: +r.monday, tuesday: +r.tuesday, wednesday: +r.wednesday, thursday: +r.thursday, friday: +r.friday, saturday: +r.saturday, sunday: +r.sunday, start_date: r.start_date, end_date: r.end_date })],

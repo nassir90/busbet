@@ -20,7 +20,7 @@ npx tsx scripts/extract-positions.ts C2 C1 L53 L51 P29
 ```
 
 ## Layout (matches the `bus-bet` design bundle)
-- Full-screen dark CartoDB map behind everything
+- Full-screen OpenStreetMap map behind everything (filtered dark or light with the theme)
 - Floating card column on the left (Date · Routes · Stats · Active Vehicles · Settings · optional Tweaks)
 - Full-width time bar at the bottom with play/pause, slider, hour ticks, speed buttons
 - Dark/light theme toggle in the header

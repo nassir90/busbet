@@ -1,6 +1,5 @@
 package iompar.mpts.ie
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -10,7 +9,6 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
-import org.osmdroid.config.Configuration
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -36,26 +34,20 @@ fun TripMap(
     nowMins: Int,
     modifier: Modifier = Modifier,
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = isAppInDarkTheme()
     val primary = MaterialTheme.colorScheme.primary
     val tint = primary.copy(alpha = 0.14f)
     val lineArgb = primary.toArgb()
     val onPinArgb = MaterialTheme.colorScheme.onPrimary.toArgb()
-    val tiles = if (isDark) CARTO_DARK else CARTO_LIGHT
+
+    // See StopMap: remembered so returning to the app does not rebuild the map from a cold
+    // tile cache (TFI-115).
+    val mapView = rememberMapView { styleBaseMap(this, isDark) }
 
     AndroidView(
-        factory = { context ->
-            Configuration.getInstance().userAgentValue = context.packageName
-            MapView(context).apply {
-                setTileSource(tiles)
-                setMultiTouchControls(true)
-                zoomController.setVisibility(
-                    org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER
-                )
-            }
-        },
+        factory = { mapView },
         update = { map ->
-            if (map.tileProvider.tileSource !== tiles) map.setTileSource(tiles)
+            styleBaseMap(map, isDark)
             if (shape.size < 2) return@AndroidView
 
             val density = map.context.resources.displayMetrics.density
@@ -135,13 +127,17 @@ fun TripMap(
                     drawn.maxOf { it.lat }, drawn.maxOf { it.lon },
                     drawn.minOf { it.lat }, drawn.minOf { it.lon },
                 )
-                map.post { map.zoomToBoundingBox(box.increaseByScale(1.15f), false) }
+                map.post {
+                    map.zoomToBoundingBox(box.increaseByScale(1.15f), false)
+                    // Fitting lands between levels; drop to the whole level below so the tiles
+                    // aren't drawn stretched (see rememberMapView) and the route still fits.
+                    map.controller.setZoom(kotlin.math.floor(map.zoomLevelDouble))
+                }
             }
 
             map.invalidate()
         },
-        // See StopMap: osmdroid needs onDetach() to release its tile cache and downloader threads.
-        onRelease = { it.onDetach() },
+        // No onRelease: rememberMapView owns detachment, along with onResume/onPause.
         modifier = modifier
             .clipToBounds()
             .graphicsLayer { }

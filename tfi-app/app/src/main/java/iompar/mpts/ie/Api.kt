@@ -20,12 +20,29 @@ data class Stop(
     @SerializedName("stop_lat") val stopLat: Double? = null,
     @SerializedName("stop_lon") val stopLon: Double? = null,
     @SerializedName("routes") val routes: List<String>? = null,
+    /**
+     * Distinct GTFS route_type values of the services calling here (0 tram/Luas, 2 rail, 3 bus).
+     * Null on backends that predate the field; a stop is effectively single-mode in practice, so
+     * [TransitMode.ofStop] picks one for the stop's logo.
+     */
+    @SerializedName("route_types") val routeTypes: List<Int>? = null,
 )
+
+/**
+ * The identifier to address this stop by in API calls (open a board, favourite it). Rail stations
+ * carry stop_code "0" in the NTA feed, so 84 of them share one code and can't be told apart — those
+ * fall back to the unique stop_id. The backend resolves a stop_id or a stop_code interchangeably,
+ * so bus stops keep using their familiar numeric code.
+ */
+val Stop.addressId: String
+    get() = if (stopCode.isBlank() || stopCode == "0") stopId else stopCode
 
 data class Departure(
     @SerializedName("trip_id") val tripId: String,
     @SerializedName("stop_sequence") val stopSequence: Int,
     @SerializedName("route_short_name") val routeShortName: String,
+    /** GTFS route_type of the departing service (0 tram/Luas, 2 rail, 3 bus). Null on old backends. */
+    @SerializedName("route_type") val routeType: Int? = null,
     @SerializedName("direction_id") val directionId: Int,
     @SerializedName("trip_headsign") val tripHeadsign: String,
     @SerializedName("scheduled_departure") val scheduledDeparture: String,
@@ -58,6 +75,8 @@ data class BatchDeparturesResponse(
 
 data class RouteDirection(
     @SerializedName("route_short_name") val routeShortName: String,
+    /** GTFS route_type of this route (0 tram/Luas, 2 rail, 3 bus). Null on old backends. */
+    @SerializedName("route_type") val routeType: Int? = null,
     @SerializedName("direction_id") val directionId: Int,
     @SerializedName("from_stop") val fromStop: String,
     @SerializedName("to_stop") val toStop: String,
@@ -105,6 +124,8 @@ data class ShapePoint(
 data class TripDetail(
     @SerializedName("trip_id") val tripId: String,
     @SerializedName("route_short_name") val routeShortName: String,
+    /** GTFS route_type of this trip's route (0 tram/Luas, 2 rail, 3 bus). Null on old backends. */
+    @SerializedName("route_type") val routeType: Int? = null,
     @SerializedName("trip_headsign") val tripHeadsign: String,
     @SerializedName("direction_id") val directionId: Int,
     val stops: List<TripStop>,
@@ -190,7 +211,28 @@ interface TenantApi {
 
     @POST("reports/{id}/undo")
     suspend fun undoReport(@Path("id") id: Long): UndoReportResponse
+
+    /** Stored on the server as a record plus its screenshot; there is no way to read it back. */
+    @POST("feedback")
+    suspend fun feedback(@Body body: FeedbackUpload): FeedbackResponse
 }
+
+/** One piece of feedback as it is sent. See tfi-tenant-api/src/feedback.ts for the limits. */
+data class FeedbackUpload(
+    val screen: String,
+    /** The screen's machine-readable context, as JSON text. */
+    val context: String,
+    val description: String,
+    val boxes: List<FeatureRequestBox>,
+    @SerializedName("app_version") val appVersion: String,
+    /** The annotated screenshot, JPEG as base64, or null when none was attached. */
+    @SerializedName("screenshot_base64") val screenshotBase64: String?,
+)
+
+data class FeedbackResponse(
+    val ok: Boolean,
+    val id: String,
+)
 
 data class ArrivalReport(
     @SerializedName("trip_id") val tripId: String,
@@ -244,7 +286,21 @@ object Api {
                 // concurrent requests per host is the app's real ceiling, not the 64 global one.
                 dispatcher(okhttp3.Dispatcher().apply { maxRequestsPerHost = 10 })
             }
+            .dns(Ipv4FirstDns)
             .build()
+    }
+
+    /**
+     * IPv4 before IPv6. OkHttp 4 tries a host's addresses one at a time, moving on only when a
+     * connect fails, and Android lists the AAAA records first. On a network that hands out IPv6
+     * but can't route it — the home Wi-Fi this was measured on, where each IPv6 attempt failed
+     * after ~1s — every fresh connection waited out both dead addresses first: an 8–12s cold
+     * open against a server answering in 50ms. IPv6 is still tried after IPv4, so an IPv6-only
+     * network keeps working.
+     */
+    private object Ipv4FirstDns : okhttp3.Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> =
+            okhttp3.Dns.SYSTEM.lookup(hostname).sortedBy { it is java.net.Inet6Address }
     }
 
     private fun <T> build(baseUrl: String, api: Class<T>): T =
@@ -266,6 +322,12 @@ object Api {
     @Volatile private var tenantApi: TenantApi? = null
 
     /**
+     * Answers every read in place of the network when set. Screenshot tests install a replay of
+     * recorded server responses here, so the real screens render real data with no backend.
+     */
+    @Volatile var gtfsOverride: GtfsApi? = null
+
+    /**
      * Read-only GTFS proxy (gtfsr-stop-times).
      *
      * Suspending because resolving the configured URL may have to wait for the first DataStore
@@ -273,6 +335,7 @@ object Api {
      * the config has landed this returns without suspending.
      */
     suspend fun service(): GtfsApi {
+        gtfsOverride?.let { return it }
         val url = BackendConfigHolder.current().urlFor(BackendService.GTFS)
         gtfsApi?.let { if (url == gtfsUrl) return it }
         return synchronized(this) {

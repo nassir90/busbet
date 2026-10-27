@@ -82,22 +82,15 @@ object NotificationScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-    private fun isActiveAt(w: NotificationWindow, dt: LocalDateTime): Boolean {
-        val mins = dt.hour * 60 + dt.minute
-        return dt.dayOfWeek.value in w.days && mins in w.startMinute until w.endMinute
-    }
+    private fun isActiveAt(w: NotificationWindow, dt: LocalDateTime): Boolean = w.isActiveAt(dt)
 
-    /** Earliest start datetime, scanning the next 8 days, that is strictly after [from]. */
-    private fun nextStart(windows: List<NotificationWindow>, from: LocalDateTime): LocalDateTime? {
-        var best: LocalDateTime? = null
-        windows.filter { it.enabled && it.days.isNotEmpty() }.forEach { w ->
-            for (offset in 0..7) {
-                val day = from.toLocalDate().plusDays(offset.toLong())
-                if (day.dayOfWeek.value !in w.days) continue
-                val candidate = day.atStartOfDay().plusMinutes(w.startMinute.toLong())
-                if (candidate.isAfter(from) && (best == null || candidate.isBefore(best))) best = candidate
-            }
-        }
-        return best
-    }
+    /**
+     * Earliest start datetime, scanning the next 8 days, that is strictly after [from]. Delegates
+     * per window to [nextStartAfter] so the editor's countdown and this alarm are computed by the
+     * same code rather than two copies of it.
+     */
+    private fun nextStart(windows: List<NotificationWindow>, from: LocalDateTime): LocalDateTime? =
+        windows.filter { it.enabled }
+            .mapNotNull { it.nextStartAfter(from) }
+            .minOrNull()
 }

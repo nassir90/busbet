@@ -78,9 +78,9 @@ fun PollEffect(
  */
 @Composable
 fun rememberNowMinutes(zone: ZoneId = SERVICE_ZONE): Int {
-    val now by produceState(initialValue = LocalTime.now(zone).let { it.hour * 60 + it.minute }, zone) {
+    val now by produceState(initialValue = LocalTime.now(AppClock.inZone(zone)).let { it.hour * 60 + it.minute }, zone) {
         while (true) {
-            val time = LocalTime.now(zone)
+            val time = LocalTime.now(AppClock.inZone(zone))
             value = time.hour * 60 + time.minute
             // Land just after the next minute boundary rather than drifting on a fixed 60s delay.
             delay(60_000L - (time.second * 1000L + time.nano / 1_000_000L) + 250L)
@@ -122,7 +122,7 @@ private val AS_OF_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm
 fun asOfTime(feedTimestamp: Long?): LocalTime =
     feedTimestamp
         ?.let { java.time.Instant.ofEpochSecond(it).atZone(SERVICE_ZONE).toLocalTime() }
-        ?: LocalTime.now(SERVICE_ZONE)
+        ?: LocalTime.now(AppClock.inZone(SERVICE_ZONE))
 
 /** [asOfTime] rendered the way every board and widget labels it. */
 fun asOfLabel(feedTimestamp: Long?): String = asOfTime(feedTimestamp).format(AS_OF_FORMAT)

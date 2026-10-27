@@ -79,7 +79,7 @@ class TimeController {
     // doesn't refetch/recompose the board on every detent. Updated by App().
     var committedSec by mutableStateOf<Long?>(null)
 
-    private fun nowSec() = System.currentTimeMillis() / 1000
+    private fun nowSec() = AppClock.millis() / 1000
 
     val isLive: Boolean get() = mode == TimeMode.RELATIVE && offsetMinutes == 0
 
@@ -122,7 +122,7 @@ private fun absDate(sec: Long): String =
 
 /** Clock time, or lowercase "now" when within the current minute. */
 private fun absHeader(sec: Long): String =
-    if (abs(sec - System.currentTimeMillis() / 1000) < 60) "now" else absClock(sec)
+    if (abs(sec - AppClock.millis() / 1000) < 60) "now" else absClock(sec)
 
 /**
  * Top-bar toggle button; [onClick] shows/hides the inline [TimeTravelPanel]. Also a
@@ -184,7 +184,7 @@ fun TimeTravelChip(controller: TimeController, onClick: () -> Unit) {
 @Composable
 private fun ClockIcon(sec: Long?, modifier: Modifier = Modifier) {
     val tint = LocalContentColor.current
-    val dt = if (sec != null) serviceTimeAt(sec) else ZonedDateTime.now(SERVICE_ZONE)
+    val dt = if (sec != null) serviceTimeAt(sec) else ZonedDateTime.now(AppClock.inZone(SERVICE_ZONE))
     val minute = dt.minute
     val hour = dt.hour % 12
 
@@ -264,7 +264,7 @@ fun TimeTravelPanel(controller: TimeController, modifier: Modifier = Modifier) {
                     )
                 }
             } else {
-                val sec = controller.absoluteSec ?: (System.currentTimeMillis() / 1000)
+                val sec = controller.absoluteSec ?: (AppClock.millis() / 1000)
                 PickerCell(
                     label = "Date", value = absDate(sec), modifier = Modifier.weight(1f).fillMaxHeight(),
                     onClick = {

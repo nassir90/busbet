@@ -1,0 +1,27 @@
+[Unit]
+Description=Keep the GTFS database resident in page cache
+After=network.target gtfsr-stop-times.service
+
+[Service]
+Type=oneshot
+# The collector's snapshot writes stream through the page cache and push busbet.db out
+# between requests. On gcp's pd-standard disk a cold lookup then pays seconds of random
+# reads: 5.0s for departures at Aston Quay (7392) and 2.8s for a five-stop favourites
+# batch, against 24ms and 56ms warm (measured 2026-10-09, 1.34GB database).
+#
+# Read the whole file rather than replaying a few queries: a handful of queries only
+# warms the pages they touch, and every other stop stays cold. A sequential read of an
+# already-cached file costs well under a second and no disk I/O; after an eviction it
+# brings everything back in one sequential pass instead of thousands of random reads.
+# Re-reading also keeps the pages on the kernel's active list, which is what stops the
+# collector's one-touch writes from evicting them in the first place.
+ExecStart=/bin/sh -c 'exec cat %h/Projects/busbet/data/busbet.db > /dev/null'
+# The snapshot directories hold ~126k files each (one per 30s, never rotated). Listing a
+# cold one costs seconds, and the server lists them to find the newest feed: that was the
+# 11.9s departures and 7.9s vehicles hits with the database already warm.
+ExecStart=/bin/sh -c 'exec ls -f %h/Projects/busbet/gtfsr-collector/data/feeds %h/Projects/busbet/gtfsr-collector/data/vehicles > /dev/null'
+Nice=19
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

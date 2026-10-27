@@ -1,0 +1,2 @@
+Send feedback from Settings, with a screenshot of any screen attached.
+Settings sliders and buttons are simpler.

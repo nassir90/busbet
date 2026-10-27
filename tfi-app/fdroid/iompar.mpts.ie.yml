@@ -1,0 +1,36 @@
+# Draft build description for fdroiddata (metadata/iompar.mpts.ie.yml).
+# Submit as a merge request to https://gitlab.com/fdroid/fdroiddata once the source is public.
+Categories:
+  - Navigation
+License: GPL-3.0-only
+AuthorName: Naza
+AuthorEmail: uzoukwuc@tcd.ie
+SourceCode: https://github.com/nassir90/busbet/tree/master/tfi-app
+IssueTracker: https://github.com/nassir90/busbet/issues
+Changelog: https://github.com/nassir90/busbet/tree/master/tfi-app/fastlane/metadata/android/en-GB/changelogs
+
+AutoName: Iompar
+
+RepoType: git
+Repo: https://github.com/nassir90/busbet.git
+
+Builds:
+  - versionName: '1.14'
+    versionCode: 15
+    commit: v1.14
+    subdir: tfi-app/app
+    sudo:
+      - apt-get update
+      - apt-get install -y -t stable openjdk-17-jdk-headless
+      - update-java-alternatives -a
+    gradle:
+      - fdroid
+
+AntiFeatures:
+  NonFreeNet:
+    en-US: Departure data comes from the developer's server, and maps from OpenStreetMap's tile servers.
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9.]+$
+CurrentVersion: '1.14'
+CurrentVersionCode: 15
