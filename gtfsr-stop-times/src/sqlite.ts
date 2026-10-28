@@ -21,6 +21,15 @@ function parseRouteTypes(concat: string | null): number[] {
 	return [...set].sort((a, b) => a - b);
 }
 
+/**
+ * The one trip that stands for a route in one direction (route short name, direction id as the
+ * two parameters). Route stops and route shape both read it, so they always describe the same
+ * variant of the route.
+ */
+const REPRESENTATIVE_TRIP = `SELECT MIN(t.trip_id) FROM trips t
+	JOIN routes r ON r.route_id = t.route_id
+	WHERE r.route_short_name = ? AND t.direction_id = ?`;
+
 function minsToGtfsTime(totalMins: number): string {
 	const h = Math.floor(totalMins / 60);
 	const m = totalMins % 60;
@@ -334,18 +343,26 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 
 		async getRouteStops(routeShortName: string, directionId: number): Promise<RouteStop[]> {
 			const r = await db.execute({
-				sql: `SELECT st.stop_sequence, s.stop_code, s.stop_name
+				sql: `SELECT st.stop_sequence, s.stop_code, s.stop_name, s.stop_lat, s.stop_lon
 				      FROM stop_times st
 				      JOIN stops s ON st.stop_id = s.stop_id
-				      WHERE st.trip_id = (
-				        SELECT MIN(t.trip_id) FROM trips t
-				        JOIN routes r ON r.route_id = t.route_id
-				        WHERE r.route_short_name = ? AND t.direction_id = ?
-				      )
+				      WHERE st.trip_id = (${REPRESENTATIVE_TRIP})
 				      ORDER BY st.stop_sequence`,
 				args: [routeShortName, directionId]
 			});
 			return r.rows as unknown as RouteStop[];
+		},
+
+		async getRouteShape(routeShortName: string, directionId: number): Promise<ShapePoint[]> {
+			const r = await db.execute({
+				sql: `SELECT s.lat, s.lon
+				      FROM shapes s
+				      JOIN trips t ON t.shape_id = s.shape_id
+				      WHERE t.trip_id = (${REPRESENTATIVE_TRIP})
+				      ORDER BY s.seq`,
+				args: [routeShortName, directionId]
+			});
+			return r.rows as unknown as ShapePoint[];
 		},
 
 		async getRoutesForStop(stopCode: string): Promise<string[]> {

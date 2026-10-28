@@ -225,6 +225,16 @@ const server = http.createServer(async (req, res) => {
 			return respond(res, 200, stops, STATIC_CACHE_HEADERS);
 		}
 
+		// The line to draw under /route-stops, from the same trip.
+		if (path === '/route-shape') {
+			const route = url.searchParams.get('route')?.trim() ?? '';
+			const dir = url.searchParams.get('direction');
+			if (!route || dir === null) return respond(res, 400, { message: 'route and direction required' });
+			const pts = await storage.getRouteShape(route, parseInt(dir));
+			if (!pts.length) return respond(res, 404, { message: 'No shape found' });
+			return respond(res, 200, pts, STATIC_CACHE_HEADERS);
+		}
+
 		const tripDetail = path.match(/^\/trips\/([^/]+)$/);
 		if (tripDetail) {
 			const detail = await storage.getTripDetail(tripDetail[1]);

@@ -50,6 +50,8 @@ export interface RouteStop {
 	stop_sequence: number;
 	stop_code: string;
 	stop_name: string;
+	stop_lat: number | null;
+	stop_lon: number | null;
 }
 
 export interface TripStop {
@@ -105,4 +107,6 @@ export interface GtfsStorage {
 	getShape(shapeId: string): Promise<ShapePoint[]>;
 	getTripSpans(tripIds: string[]): Promise<Map<string, { first_departure: string; last_arrival: string }>>;
 	getShapeForTrip(tripId: string): Promise<ShapePoint[]>;
+	/** The shape of the trip getRouteStops reads, so the line and the stops on a map agree. */
+	getRouteShape(routeShortName: string, directionId: number): Promise<ShapePoint[]>;
 }

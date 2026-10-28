@@ -1,10 +1,30 @@
-import { useEffect, useMemo } from 'preact/hooks';
-import { paths, peek, prefetch, type RouteStop, useApi } from '../api';
+import { useEffect, useMemo, useState } from 'preact/hooks';
+import { paths, peek, prefetch, type RouteStop, type ShapePoint, useApi } from '../api';
 import { Empty, Skeleton, TopBar } from '../components';
+import { BusMap } from '../Map';
 import { href, Link, navigate, useNavReady } from '../router';
+import { useSettings } from '../store';
 
 // Static timetable data; the API marks it cacheable for an hour.
 const STATIC = null;
+
+/** Where the stop and trip pages put their map beside the list (see .split.with-map). */
+const WIDE = '(min-width: 1000px)';
+
+/**
+ * Whether the screen is wide enough for the map pane. The route map is only shown there: on a
+ * phone the list is the page, and Leaflet and the shape aren't fetched at all.
+ */
+function useWide() {
+	const [wide, setWide] = useState(() => matchMedia(WIDE).matches);
+	useEffect(() => {
+		const mq = matchMedia(WIDE);
+		const on = () => setWide(mq.matches);
+		mq.addEventListener('change', on);
+		return () => mq.removeEventListener('change', on);
+	}, []);
+	return wide;
+}
 
 export function RouteView({ route, dir, from }: { route: string; dir: number | null; from: string | null }) {
 	// Both directions load together, so the tabs switch instantly and a one-way route is known
@@ -26,6 +46,17 @@ export function RouteView({ route, dir, from }: { route: string; dir: number | n
 	const label = (s?: RouteStop[]) => (s && s.length ? `To ${s[s.length - 1].stop_name}` : '');
 	const fromIdx = from && stops ? stops.findIndex((s) => s.stop_code === from) : -1;
 
+	const settings = useSettings();
+	const showMap = useWide() && settings.maps;
+	const shape = useApi<ShapePoint[]>(showMap && stops?.length ? paths.routeShape(route, active) : null, STATIC);
+	const mapStops = useMemo(() => (stops ?? [])
+		.filter((s) => s.stop_lat != null && s.stop_lon != null)
+		.map((s) => ({ lat: s.stop_lat!, lon: s.stop_lon!, label: `${s.stop_name} (${s.stop_code})`, primary: s.stop_code === from })), [stops, from]);
+	// Wait for the shape (or its 404): the map frames itself once, from the line. Without a shape,
+	// a line through the stops still shows where the route goes.
+	const withMap = showMap && mapStops.length >= 2 && (shape.data !== undefined || shape.error != null);
+	const line = shape.data && shape.data.length >= 2 ? shape.data : mapStops;
+
 	useEffect(() => {
 		if (fromIdx < 0) return;
 		document.getElementById(`rs-${from}`)?.scrollIntoView({ block: 'center' });
@@ -37,6 +68,10 @@ export function RouteView({ route, dir, from }: { route: string; dir: number | n
 				title={`Route ${route}`}
 				sub={stops && stops.length ? `${stops[0].stop_name} → ${stops[stops.length - 1].stop_name} · ${stops.length} stops` : undefined}
 			/>
+			{/* On a wide screen the whole route is drawn beside the list, as on the trip page. */}
+			<div class={`split${withMap ? ' with-map' : ''}`}>
+			{withMap && <BusMap key={active} stops={mapStops} buses={[]} shape={line} fit="all" />}
+			<main class="page flush">
 			{loaded && (d0.data!.length > 0 || d1.data!.length > 0) && (
 				<nav class="tabs" role="tablist">
 					{[0, 1].map((d) => {
@@ -56,7 +91,6 @@ export function RouteView({ route, dir, from }: { route: string; dir: number | n
 					})}
 				</nav>
 			)}
-			<main class="page flush">
 				{cur.error && !stops ? (
 					<Empty>Couldn't load route {route}.</Empty>
 				) : !stops ? (
@@ -81,6 +115,7 @@ export function RouteView({ route, dir, from }: { route: string; dir: number | n
 					</ol>
 				)}
 			</main>
+			</div>
 		</>
 	);
 }

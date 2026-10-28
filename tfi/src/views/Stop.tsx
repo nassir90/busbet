@@ -27,6 +27,23 @@ export function StopView({ code }: { code: string }) {
 	const [filterOpen, setFilterOpen] = useState(false);
 	const [localHidden, setLocalHidden] = useState<string[]>([]);
 
+	// The filter floats over the page, so it closes like a menu: Escape, or a click outside it
+	// (the filter button toggles it itself).
+	useEffect(() => {
+		if (!filterOpen) return;
+		const onDown = (e: PointerEvent) => {
+			const t = e.target as Element;
+			if (!t.closest('.filter, [aria-label="Filter routes"]')) setFilterOpen(false);
+		};
+		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFilterOpen(false); };
+		document.addEventListener('pointerdown', onDown);
+		document.addEventListener('keydown', onKey);
+		return () => {
+			document.removeEventListener('pointerdown', onDown);
+			document.removeEventListener('keydown', onKey);
+		};
+	}, [filterOpen]);
+
 	useNavReady(res.data !== undefined || res.error != null, cachedAtOpen);
 
 	const fav = favourites.find((f) => f.code === code);

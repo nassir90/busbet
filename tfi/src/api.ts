@@ -48,6 +48,8 @@ export interface RouteStop {
 	stop_sequence: number;
 	stop_code: string;
 	stop_name: string;
+	stop_lat?: number | null;
+	stop_lon?: number | null;
 }
 
 export interface TripStop {
@@ -247,6 +249,7 @@ export const paths = {
 	batch: (codes: string[]) => `departures?codes=${codes.map(enc).join(',')}`,
 	stopRoutes: (code: string) => `stop-routes/${enc(code)}`,
 	routeStops: (route: string, dir: number) => `route-stops?route=${enc(route)}&direction=${dir}`,
+	routeShape: (route: string, dir: number) => `route-shape?route=${enc(route)}&direction=${dir}`,
 	trip: (id: string) => `trips/${enc(id)}`,
 	vehicles: (code: string, windowMins: number) => `vehicles/${enc(code)}?window=${windowMins}`,
 	tripVehicle: (id: string) => `vehicles/trip/${enc(id)}`,

@@ -33,6 +33,7 @@ const API = [
 	{ re: /^departures\/[^/]+$/,     params: [] },
 	{ re: /^stop-routes\/[^/]+$/,    params: [] },
 	{ re: /^route-stops$/,           params: ['route', 'direction'] },
+	{ re: /^route-shape$/,           params: ['route', 'direction'] },
 	{ re: /^trips\/[^/]+$/,          params: [] },
 	{ re: /^vehicles\/trip\/[^/]+$/, params: [] },
 	{ re: /^vehicles\/[^/]+$/,       params: ['window'] },
