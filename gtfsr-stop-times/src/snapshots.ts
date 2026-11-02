@@ -234,6 +234,35 @@ export function parseTimeParam(v: string | null): number | null {
 	return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
 }
 
+const MAX_RANGE_STEPS = 1000;
+const MIN_RANGE_STEP_S = 1;
+/** Instants a range may cover: 2000-01-01 to 2100-01-01 UTC. */
+const MIN_RANGE_SEC = 946_684_800;
+const MAX_RANGE_SEC = 4_102_444_800;
+
+export const RANGE_LIMITS =
+	`invalid range: start and end between 2000 and 2100, end not before start, step at least ` +
+	`${MIN_RANGE_STEP_S}s, at most ${MAX_RANGE_STEPS} steps`;
+
+/**
+ * Sample instants from start..end inclusive, `step` seconds apart, or null if the range is out
+ * of bounds.
+ *
+ * Indexed, not `t += step`: once `t` is large enough (start=end=1e300), adding the step no longer
+ * changes it, so that loop never ended. The step count it had already checked was 1, and it
+ * pushed until the process ran out of memory, from a single anonymous GET. A step below 1s did
+ * the same at ordinary timestamps.
+ */
+export function rangeSteps(start: number, end: number, step: number): number[] | null {
+	if (![start, end, step].every(Number.isFinite)) return null;
+	if (start < MIN_RANGE_SEC || end > MAX_RANGE_SEC || end < start || step < MIN_RANGE_STEP_S) return null;
+	const count = Math.floor((end - start) / step) + 1;
+	if (count > MAX_RANGE_STEPS) return null;
+	const out: number[] = [];
+	for (let i = 0; i < count; i++) out.push(Math.floor(start + i * step));
+	return out;
+}
+
 /** Accepts a float (seconds) or a duration string like `30s`, `5m`, `1h`. */
 export function parseDuration(v: string | null, def: number): number {
 	if (!v) return def;

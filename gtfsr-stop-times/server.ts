@@ -4,10 +4,8 @@ import { createSqliteBackend } from './src/sqlite.js';
 import { getDepartures, getDeparturesBatch } from './src/departures.js';
 import { fetchFeed, selectFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
 import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
-import { parseTimeParam, parseDuration, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
+import { parseTimeParam, parseDuration, rangeSteps, RANGE_LIMITS, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
 import { serviceMinutes, minutesUntil, SERVICE_TZ } from './src/servicetime.js';
-
-const MAX_RANGE_STEPS = 1000;
 
 /**
  * Ceiling on stops per batch departures call. A home screen has a handful of favourites; this is
@@ -57,16 +55,6 @@ function respond(res: http.ServerResponse, status: number, body: unknown, header
 	const payload = JSON.stringify(body);
 	res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
 	res.end(payload);
-}
-
-/** Builds a list of sample instants from start..end inclusive, stepping by `step` seconds. */
-function rangeSteps(start: number, end: number, step: number): number[] | null {
-	if (!Number.isFinite(start) || !Number.isFinite(end) || !(step > 0) || end < start) return null;
-	const count = Math.floor((end - start) / step) + 1;
-	if (count > MAX_RANGE_STEPS) return null;
-	const out: number[] = [];
-	for (let t = start; t <= end + 1e-9; t += step) out.push(Math.floor(t));
-	return out;
 }
 
 function buildTripUpdatesJson(feed: Awaited<ReturnType<typeof fetchFeed>>) {
@@ -161,7 +149,7 @@ const server = http.createServer(async (req, res) => {
 			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
 			if (start == null || end == null) return respond(res, 400, { message: 'start and end required' });
 			const steps = rangeSteps(start, end, step);
-			if (!steps) return respond(res, 400, { message: `invalid range or too many steps (max ${MAX_RANGE_STEPS})` });
+			if (!steps) return respond(res, 400, { message: RANGE_LIMITS });
 			let stop = null;
 			const series = [];
 			for (const t of steps) {
@@ -261,7 +249,7 @@ const server = http.createServer(async (req, res) => {
 			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
 			if (start == null || end == null) return respond(res, 400, { message: 'start and end required' });
 			const steps = rangeSteps(start, end, step);
-			if (!steps) return respond(res, 400, { message: `invalid range or too many steps (max ${MAX_RANGE_STEPS})` });
+			if (!steps) return respond(res, 400, { message: RANGE_LIMITS });
 			const series = [];
 			for (const t of steps) {
 				const v = await vehiclesAt(vehiclesRange[1], t, windowMins, lookback);
