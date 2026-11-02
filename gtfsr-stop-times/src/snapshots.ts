@@ -25,7 +25,13 @@ const RESCAN_MS        = 10 * 60_000;
  * that window decodes a truncated gzip and 500s. Snapshots land every 30s, so 2s costs nothing.
  */
 export const SETTLE_MS = 2_000;
-const DECODE_CACHE_MAX = 48;
+/**
+ * Decoded feeds kept. Live boards use three: the current trip updates, and the current and
+ * previous vehicles for bearings. A decoded TripUpdates feed is ~3 MB, plus ~1 MB for its
+ * trip-updates map (gtfs.ts), so the old 48 held up to ~190 MB once warm. /range walks its
+ * snapshots in order, so it only ever needs the last step's feeds, which a small cache keeps.
+ */
+const DECODE_CACHE_MAX = 8;
 
 interface Entry { ts: number; file: string }
 interface Index {
