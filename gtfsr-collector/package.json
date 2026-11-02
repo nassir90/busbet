@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "esbuild scripts/collect.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outdir=dist --log-level=warning",
+    "start": "node dist/collect.js",
     "collect": "npx tsx scripts/collect.ts",
     "extract": "npx tsx scripts/extract-positions.ts",
     "playback": "npx tsx scripts/serve-playback.ts"
@@ -13,6 +15,7 @@
     "gtfs-realtime-bindings": "^1.1.1"
   },
   "devDependencies": {
+    "esbuild": "0.27.4",
     "serve": "^14.2.0",
     "tsx": "^4.19.2",
     "typescript": "^5.8.2"

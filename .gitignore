@@ -1,5 +1,7 @@
 .env
 node_modules
+# The node services' esbuild bundles, built by `npm run build` when each one starts.
+dist/
 .svelte-kit
 **/supabase/.temp/
 

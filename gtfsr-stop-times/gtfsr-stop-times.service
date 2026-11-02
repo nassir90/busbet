@@ -5,7 +5,10 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/lab/Projects/busbet/gtfsr-stop-times
-ExecStart=npx tsx server.ts
+# Bundled to plain JS and run by node itself: `npx tsx` was three node processes (npm, the tsx
+# CLI and the real one with tsx's loader in it), ~61 MB more than the server needs.
+ExecStartPre=npm run --silent build
+ExecStart=node dist/server.js
 Environment=DATABASE_URL=/home/lab/Projects/busbet/data/busbet.db
 Restart=on-failure
 Slice=lab.slice

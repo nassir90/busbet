@@ -5,7 +5,10 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/lab/Projects/busbet/tfi-tenant-api
-ExecStart=npx tsx server.ts
+# Bundled to plain JS and run by node itself: `npx tsx` was three node processes (npm, the tsx
+# CLI and the real one with tsx's loader in it), ~61 MB more than the API needs.
+ExecStartPre=npm run --silent build
+ExecStart=node dist/server.js
 EnvironmentFile=/home/lab/Projects/ports.env
 Environment=GTFSR_BASE_URL=http://127.0.0.1:8110
 Restart=on-failure

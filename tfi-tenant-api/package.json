@@ -5,6 +5,8 @@
   "private": true,
   "description": "Stateful, tenant-aware write API for BusBet (arrival/cancellation reports). Consumes the read-only gtfsr-stop-times API for enrichment.",
   "scripts": {
+    "build": "esbuild server.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outdir=dist --log-level=warning",
+    "start": "node dist/server.js",
     "dev": "tsx server.ts",
     "simulate": "tsx scripts/simulate-reports.ts",
     "evaluate": "tsx scripts/evaluate-reports.ts",
@@ -16,6 +18,7 @@
     "@libsql/client": "^0.17.0"
   },
   "devDependencies": {
+    "esbuild": "0.28.1",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3"
   }

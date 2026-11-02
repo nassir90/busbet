@@ -40,7 +40,10 @@ echo "timetable published ${current} (last loaded: ${previous:-never}); reloadin
 ln -f "$DB" "$DB.prev" 2>/dev/null || true
 
 cd "$APP"
-DATABASE_URL="$DB" npx tsx load-gtfs.ts
+# Plain node on the bundle, not `npx tsx`: that adds ~61 MB of npm, tsx CLI and loader to the
+# load's peak. The build also refreshes dist/server.js, which the restart below runs.
+npm run --silent build
+DATABASE_URL="$DB" node dist/load-gtfs.js
 systemctl --user restart gtfsr-stop-times.service
 
 # Recorded last, so a load that fails is retried on the next run. If the NTA publishes again
