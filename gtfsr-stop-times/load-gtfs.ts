@@ -22,11 +22,12 @@
  */
 
 import { createReadStream, createWriteStream, existsSync, mkdirSync } from 'fs';
-import { mkdir, open, rename, rm, writeFile } from 'fs/promises';
+import { mkdir, open, rename, rm } from 'fs/promises';
 import { createInterface } from 'readline';
 import { basename, dirname, join } from 'path';
-import { tmpdir } from 'os';
+import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'stream/web';
 import { createInflateRaw } from 'zlib';
 
 const GTFS_ZIP_URL = 'https://www.transportforireland.ie/transitData/Data/GTFS_Realtime.zip';
@@ -114,11 +115,15 @@ async function createSqliteLoader(dbPath: string): Promise<Loader> {
 	const { createClient } = await import('@libsql/client');
 	const db = createClient({ url: `file:${buildPath}` });
 
+	// A 16 MB cache and on-disk temp files: 256 MB and temp_store=MEMORY took the load's peak
+	// to 988 MB for no measurable speed (402 MB this way, both ~22s, 2 Nov 2026), and the
+	// index sorts spill to temp files sized by the cache. SQLite puts those in $TMPDIR or
+	// /var/tmp, both on disk on the Pi; /tmp there is RAM.
 	await db.executeMultiple(`
 		PRAGMA journal_mode = OFF;
 		PRAGMA synchronous = OFF;
-		PRAGMA cache_size = -262144;
-		PRAGMA temp_store = MEMORY;
+		PRAGMA cache_size = -16384;
+		PRAGMA temp_store = FILE;
 		CREATE TABLE stops (stop_id TEXT PRIMARY KEY, stop_code TEXT, stop_name TEXT, stop_lat REAL, stop_lon REAL);
 		CREATE TABLE routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT, route_type INTEGER);
 		CREATE TABLE trips (trip_id TEXT PRIMARY KEY, route_id TEXT, service_id TEXT, trip_headsign TEXT, direction_id INTEGER, shape_id TEXT);
@@ -481,15 +486,14 @@ async function extractZip(zipPath: string, outDir: string): Promise<string> {
 	return outDir;
 }
 
-async function downloadZip(url: string): Promise<string> {
+/** Streams the zip to `dest` rather than holding all ~134 MB of it in memory first. */
+async function downloadZip(url: string, dest: string): Promise<void> {
 	console.log(`Downloading GTFS static data…\n  ${url}`);
 	const res = await fetch(url);
-	if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-	const buf = Buffer.from(await res.arrayBuffer());
-	const dest = join(tmpdir(), `busbet-gtfs-${Date.now()}.zip`);
-	await writeFile(dest, buf);
-	console.log(`  ✓ ${(buf.length / 1_048_576).toFixed(1)} MB`);
-	return dest;
+	if (!res.ok || !res.body) throw new Error(`Download failed: ${res.status}`);
+	const out = createWriteStream(dest);
+	await pipeline(Readable.fromWeb(res.body as unknown as NodeReadableStream), out);
+	console.log(`  ✓ ${(out.bytesWritten / 1_048_576).toFixed(1)} MB`);
 }
 
 // ---------------------------------------------------------------------------
@@ -509,29 +513,34 @@ async function main() {
 		loader = await createSqliteLoader(DATABASE_URL);
 	}
 
-	let gtfsDir: string;
-	let tempZip: string | null = null;
-	let tempDir: string | null = null;
+	// The download and the extracted text (~830 MB together) go beside the database, not in
+	// os.tmpdir(): /tmp is RAM on Raspberry Pi OS. Fixed names, cleared first, so a killed
+	// load's leftovers are reclaimed by the next one instead of piling up on disk.
+	const tempZip = `${DATABASE_URL}.download.zip`;
+	const tempDir = `${DATABASE_URL}.extract`;
+	mkdirSync(dirname(DATABASE_URL), { recursive: true });
+	const cleanUp = () => Promise.all([rm(tempZip, { force: true }), rm(tempDir, { recursive: true, force: true })]);
+	await cleanUp();
 
-	if (localDir) {
-		gtfsDir = localDir;
-		console.log(`Using local directory: ${gtfsDir}`);
-	} else {
-		const zipPath = localFile ?? await downloadZip(GTFS_ZIP_URL);
-		tempZip = localFile ? null : zipPath;
-		const extractTo = join(tmpdir(), `busbet-gtfs-${Date.now()}`);
-		tempDir = extractTo;
-		console.log('Extracting…');
-		gtfsDir = await extractZip(zipPath, extractTo);
+	try {
+		let gtfsDir: string;
+		if (localDir) {
+			gtfsDir = localDir;
+			console.log(`Using local directory: ${gtfsDir}`);
+		} else {
+			const zipPath = localFile ?? tempZip;
+			if (!localFile) await downloadZip(GTFS_ZIP_URL, tempZip);
+			console.log('Extracting…');
+			gtfsDir = await extractZip(zipPath, tempDir);
+		}
+
+		console.log('\nImporting…');
+		await importAll(loader, gtfsDir);
+		await loader.finish();
+		console.log('\nDone!');
+	} finally {
+		await cleanUp();
 	}
-
-	console.log('\nImporting…');
-	await importAll(loader, gtfsDir);
-	await loader.finish();
-	console.log('\nDone!');
-
-	if (tempZip) await rm(tempZip, { force: true });
-	if (tempDir) await rm(tempDir, { recursive: true, force: true });
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
