@@ -21,7 +21,7 @@ import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import type { transit_realtime } from 'gtfs-realtime-bindings';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { FeedMessage } = (GtfsRealtimeBindings as any).transit_realtime as typeof transit_realtime;
+const { FeedHeader } = (GtfsRealtimeBindings as any).transit_realtime as typeof transit_realtime;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -124,8 +124,7 @@ async function main() {
 				// Archive TripUpdates
 				if (tripsRes.ok) {
 					const raw = new Uint8Array(await tripsRes.arrayBuffer());
-					const feed = FeedMessage.decode(raw);
-					const feedTs = feed.header?.timestamp?.toNumber?.() ?? null;
+					const feedTs = feedTimestamp(raw);
 					if (feedTs !== null && feedTs !== lastTripsTs) {
 						lastTripsTs = feedTs;
 						writeFileSync(join(FEEDS_DIR, `${safeName}_${feedTs}.pb.gz`), gzipSync(raw));
@@ -139,8 +138,7 @@ async function main() {
 				// Archive VehiclePositions
 				if (vehiclesRes.ok) {
 					const raw = new Uint8Array(await vehiclesRes.arrayBuffer());
-					const feed = FeedMessage.decode(raw);
-					const feedTs = feed.header?.timestamp?.toNumber?.() ?? null;
+					const feedTs = feedTimestamp(raw);
 					if (feedTs !== null && feedTs !== lastVehiclesTs) {
 						lastVehiclesTs = feedTs;
 						writeFileSync(join(VEHICLES_DIR, `${safeName}_${feedTs}.pb.gz`), gzipSync(raw));
@@ -169,6 +167,46 @@ async function main() {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The feed's header.timestamp, read without decoding the feed. FeedMessage.decode built ~3 MB
+ * of objects per TripUpdates poll just for this one field, and that churn was most of the
+ * collector's memory (it peaked at 396 MB on the gcp box). The walk still checks that every
+ * top-level field fits the buffer exactly, so a truncated response throws as the full decode
+ * did, rather than being archived.
+ */
+function feedTimestamp(raw: Uint8Array): number | null {
+	let pos = 0;
+	const varint = (): number => {
+		let value = 0;
+		for (let shift = 0; pos < raw.length && shift < 64; shift += 7) {
+			const b = raw[pos++];
+			value += (b & 0x7f) * 2 ** shift;
+			if (b < 0x80) return value;
+		}
+		throw new Error('truncated feed');
+	};
+
+	let header: transit_realtime.FeedHeader | null = null;
+	while (pos < raw.length) {
+		const tag = varint();
+		const wireType = tag % 8;
+		if (wireType === 0) varint();
+		else if (wireType === 1) pos += 8;
+		else if (wireType === 5) pos += 4;
+		else if (wireType === 2) {
+			const len = varint();
+			// Field 1, length-delimited: the FeedHeader.
+			if (tag === (1 << 3 | 2) && pos + len <= raw.length) header = FeedHeader.decode(raw.subarray(pos, pos + len));
+			pos += len;
+		} else {
+			throw new Error(`not a GTFS-R feed: wire type ${wireType}`);
+		}
+	}
+	if (pos !== raw.length) throw new Error('truncated feed');
+	const t = header?.timestamp;
+	return t == null ? null : typeof t === 'number' ? t : t.toNumber();
+}
 
 function ts(): string {
 	return new Date().toLocaleTimeString('en-IE', { hour12: false });
