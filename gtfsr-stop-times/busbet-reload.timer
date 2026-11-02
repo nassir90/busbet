@@ -1,0 +1,13 @@
+[Unit]
+Description=Check for a new GTFS timetable every half hour
+
+[Timer]
+# The NTA has published late in the evening (23:17 and 23:24 UTC so far), but nothing says it
+# must. A check is one HEAD request, so every half hour costs nothing and caps how long boards
+# can run without realtime after a new timetable at about 35 minutes.
+OnCalendar=*:07,37
+RandomizedDelaySec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

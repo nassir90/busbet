@@ -1,0 +1,18 @@
+[Unit]
+Description=Reload the GTFS timetable when the NTA publishes a new one
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/sh %h/Projects/busbet/gtfsr-stop-times/reload-gtfs.sh
+# A load takes about 3 minutes on the e2-medium (measured 2 Nov 2026) and writes ~1 GB. Keep it
+# behind the API and the collector, but not on the idle I/O class: under the collector's
+# steady writes that could starve it for hours.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=default.target
