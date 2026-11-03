@@ -210,7 +210,7 @@ interface TenantApi {
     suspend fun report(@Body body: ArrivalReport): ReportResponse
 
     @POST("reports/{id}/undo")
-    suspend fun undoReport(@Path("id") id: Long): UndoReportResponse
+    suspend fun undoReport(@Path("id") id: Long, @Body body: UndoReportRequest): UndoReportResponse
 
     /** Stored on the server as a record plus its screenshot; there is no way to read it back. */
     @POST("feedback")
@@ -249,6 +249,12 @@ data class ArrivalReport(
 data class ReportResponse(
     val ok: Boolean,
     val id: Long,
+    /** Proves to the server that this install sent the report. Null from a server too old to issue one. */
+    @SerializedName("undo_token") val undoToken: String?,
+)
+
+data class UndoReportRequest(
+    @SerializedName("undo_token") val undoToken: String?,
 )
 
 data class UndoReportResponse(

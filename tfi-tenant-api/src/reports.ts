@@ -1,6 +1,17 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createClient } from '@libsql/client';
 import { migrate } from './migrations.js';
 import type { ReportKind } from './derive.js';
+
+/** A fresh undo token, and the hash of it that is stored. Only the submitter ever sees the token. */
+export function newUndoToken(): { token: string; hash: string } {
+	const token = randomBytes(16).toString('base64url');
+	return { token, hash: hashUndoToken(token) };
+}
+
+export function hashUndoToken(token: string): string {
+	return createHash('sha256').update(token).digest('hex');
+}
 
 /** A user-submitted observation of a boarding, an arrival, or a cancellation. */
 export interface ReportInput {
@@ -17,6 +28,7 @@ export interface ReportInput {
 	feed_delay_seconds: number | null;
 	reported_at: number;             // unix seconds
 	source?: string;                 // 'user' (default) | 'simulated' | ...
+	undo_token_hash?: string | null; // see newUndoToken; null for rows only scripts may undo
 }
 
 export interface ListOptions {
@@ -53,15 +65,26 @@ export function createReportsStore(dbPath: string) {
 				sql: `INSERT INTO reports
 				      (kind, trip_id, route_short_name, stop_code, stop_sequence, service_date,
 				       scheduled_departure, actual_time, actual_epoch, delay_seconds, feed_delay_seconds,
-				       reported_at, source)
-				      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				       reported_at, source, undo_token_hash)
+				      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				args: [
 					r.kind, r.trip_id, r.route_short_name, r.stop_code, r.stop_sequence, r.service_date,
 					r.scheduled_departure, r.actual_time, r.actual_epoch, r.delay_seconds, r.feed_delay_seconds,
-					r.reported_at, r.source ?? 'user',
+					r.reported_at, r.source ?? 'user', r.undo_token_hash ?? null,
 				],
 			});
 			return Number(result.lastInsertRowid);
+		},
+
+		/** Whether `token` was issued for report `id`: null when there is no such report. */
+		async undoTokenMatches(id: number, token: string): Promise<boolean | null> {
+			await ensure();
+			const r = await db.execute({ sql: `SELECT undo_token_hash FROM reports WHERE id = ?`, args: [id] });
+			if (r.rows.length === 0) return null;
+			const stored = r.rows[0].undo_token_hash;
+			if (typeof stored !== 'string') return false;
+			const want = Buffer.from(stored), given = Buffer.from(hashUndoToken(token));
+			return want.length === given.length && timingSafeEqual(want, given);
 		},
 
 		async undo(id: number, undoneAt = Math.floor(Date.now() / 1000), reason: string | null = null) {

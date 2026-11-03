@@ -1,10 +1,11 @@
 import http from 'node:http';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createReportsStore, type ReportInput } from './src/reports.js';
-import { deriveActual, isReportKind, kindHasTime } from './src/derive.js';
+import { createReportsStore, newUndoToken, type ReportInput } from './src/reports.js';
+import { deriveActual } from './src/derive.js';
 import { LATEST_VERSION } from './src/migrations.js';
 import { createFeedbackStore, FEEDBACK_MAX_BODY_BYTES } from './src/feedback.js';
+import { REPORT_MAX_BODY_BYTES, validateReport, validateUndo, type ValidReport } from './src/validate.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -58,17 +59,19 @@ class BodyTooLarge extends Error {}
 /**
  * The request body as text, refused past [limit] bytes. Oversized bodies used to be cut off with
  * req.destroy() alone, which never settled this promise: the handler hung and the client waited
- * out its own timeout instead of hearing why.
+ * out its own timeout instead of hearing why. Destroying it here also dropped the 413 the handler
+ * then sent, so the upload is only paused, and bodyError closes the connection after the 413.
  */
 function readBody(req: http.IncomingMessage, limit = 1_000_000): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const chunks: Buffer[] = [];
 		let size = 0;
 		req.on('data', (c: Buffer) => {
+			if (size > limit) return;
 			size += c.length;
 			if (size > limit) {
+				req.pause();
 				reject(new BodyTooLarge());
-				req.destroy();
 				return;
 			}
 			chunks.push(c);
@@ -76,6 +79,29 @@ function readBody(req: http.IncomingMessage, limit = 1_000_000): Promise<string>
 		req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
 		req.on('error', reject);
 	});
+}
+
+class NotJson extends Error {}
+
+/**
+ * The request body parsed as JSON, refused unless it is sent as application/json. A web page on
+ * any site can make a browser POST text/plain or a form here without asking first; sending
+ * application/json from another site needs a CORS preflight, which this API never answers.
+ */
+async function readJson(req: http.IncomingMessage, limit: number): Promise<unknown> {
+	const type = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
+	if (type !== 'application/json') throw new NotJson();
+	return JSON.parse(await readBody(req, limit) || '{}');
+}
+
+/** The response for a body readJson refused. */
+function bodyError(res: http.ServerResponse, err: unknown, tooLarge = 'body too large') {
+	if (err instanceof NotJson) return respond(res, 415, { message: 'Content-Type must be application/json' });
+	if (err instanceof BodyTooLarge) {
+		res.setHeader('Connection', 'close');  // rather than read the rest of the upload
+		return respond(res, 413, { message: tooLarge });
+	}
+	return respond(res, 400, { message: 'invalid JSON' });
 }
 
 interface TripStop {
@@ -104,37 +130,21 @@ function parseReportId(path: string): number | null {
 }
 
 /**
- * Enriches a thin client report: looks up scheduled departure, stop_sequence and the
+ * Enriches a validated client report: looks up scheduled departure, stop_sequence and the
  * feed's predicted delay from the read-only GTFS API, then derives the actual instant
  * and the ground-truth delay.
  */
-async function buildReport(body: any): Promise<ReportInput | { error: string }> {
-	const kind = body?.kind;
-	if (!isReportKind(kind)) return { error: 'kind must be "arrived", "boarded" or "cancelled"' };
-	const tripId = String(body?.trip_id ?? '');
-	const stopCode = String(body?.stop_code ?? '');
-	const serviceDate = String(body?.service_date ?? '');
-	if (!tripId || !stopCode || !/^\d{8}$/.test(serviceDate)) {
-		return { error: 'trip_id, stop_code and service_date (YYYYMMDD) are required' };
-	}
-
-	const stop = await fetchTripStop(tripId, stopCode);
-	const actualTime: string | null = kindHasTime(kind) ? (body?.actual_time ?? null) : null;
-	const { actualEpoch, delaySeconds } = deriveActual(actualTime, serviceDate, stop?.scheduled_departure ?? null);
+async function buildReport(r: ValidReport): Promise<ReportInput> {
+	const stop = await fetchTripStop(r.trip_id, r.stop_code);
+	const { actualEpoch, delaySeconds } = deriveActual(r.actual_time, r.service_date, stop?.scheduled_departure ?? null);
 
 	return {
-		kind,
-		trip_id: tripId,
-		route_short_name: body?.route_short_name ?? null,
-		stop_code: stopCode,
+		...r,
 		stop_sequence: stop?.stop_sequence ?? null,
-		service_date: serviceDate,
 		scheduled_departure: stop?.scheduled_departure ?? null,
-		actual_time: actualTime,
 		actual_epoch: actualEpoch,
 		delay_seconds: delaySeconds,
 		feed_delay_seconds: stop?.delay_seconds ?? null,
-		reported_at: Number(body?.reported_at) || Math.floor(Date.now() / 1000),
 		// Provenance is server-assigned: a client cannot claim to be anything but a user.
 		source: 'user',
 	};
@@ -153,6 +163,7 @@ const server = http.createServer(async (req, res) => {
 
 		// Deploy check: what schema the live database is actually on. If `version` here
 		// trails `expected`, the running process is older than the code that needs it.
+		// Ask it on the box (curl 127.0.0.1:8120/schema): it is not forwarded from outside.
 		if (req.method === 'GET' && path === '/schema') {
 			await reports.ready();
 			const rows = await reports.db.execute('SELECT version, name, applied_at FROM schema_migrations ORDER BY version');
@@ -160,39 +171,44 @@ const server = http.createServer(async (req, res) => {
 		}
 
 		if (req.method === 'POST' && path === '/report') {
-			let body: any;
-			try { body = JSON.parse(await readBody(req) || '{}'); }
-			catch (err) {
-				if (err instanceof BodyTooLarge) return respond(res, 413, { message: 'body too large' });
-				return respond(res, 400, { message: 'invalid JSON' });
-			}
-			const built = await buildReport(body);
-			if ('error' in built) return respond(res, 400, { message: built.error });
-			const id = await reports.insert(built);
-			return respond(res, 201, { ok: true, id, ...built });
+			let body: unknown;
+			try { body = await readJson(req, REPORT_MAX_BODY_BYTES); }
+			catch (err) { return bodyError(res, err); }
+			const valid = validateReport(body);
+			if ('error' in valid) return respond(res, 400, { message: valid.error });
+			const built = await buildReport(valid);
+			const undo = newUndoToken();
+			const id = await reports.insert({ ...built, undo_token_hash: undo.hash });
+			return respond(res, 201, { ok: true, id, undo_token: undo.token, ...built });
 		}
 
 		// Feedback from the app's feedback screen. Stored, never served back: see src/feedback.ts.
 		if (req.method === 'POST' && path === '/feedback') {
 			let body: unknown;
-			try { body = JSON.parse(await readBody(req, FEEDBACK_MAX_BODY_BYTES) || '{}'); }
-			catch (err) {
-				if (err instanceof BodyTooLarge) return respond(res, 413, { message: 'feedback too large' });
-				return respond(res, 400, { message: 'invalid JSON' });
-			}
+			try { body = await readJson(req, FEEDBACK_MAX_BODY_BYTES); }
+			catch (err) { return bodyError(res, err, 'feedback too large'); }
 			const result = feedback.save(body);
 			if ('error' in result) return respond(res, result.status, { message: result.error });
 			return respond(res, 201, { ok: true, id: result.id });
 		}
 
+		// Only whoever submitted a report holds its undo token; IDs alone are just a counter.
 		const undoReportId = req.method === 'POST' ? parseReportId(path) : null;
 		if (undoReportId !== null) {
+			let body: unknown;
+			try { body = await readJson(req, REPORT_MAX_BODY_BYTES); }
+			catch (err) { return bodyError(res, err); }
+			const valid = validateUndo(body);
+			if ('error' in valid) return respond(res, 400, { message: valid.error });
+			const matches = await reports.undoTokenMatches(undoReportId, valid.undo_token);
+			if (matches === null) return respond(res, 404, { message: 'report not found' });
+			if (!matches) return respond(res, 403, { message: 'wrong undo token for this report' });
 			const result = await reports.undo(undoReportId);
-			if (!result.found) return respond(res, 404, { message: 'report not found' });
 			return respond(res, 200, { ok: true, id: undoReportId, undone: result.undone });
 		}
 
-		// Inspection: recent reports, optionally filtered by ?date=YYYYMMDD and ?source=
+		// Inspection: recent reports, optionally filtered by ?date=YYYYMMDD and ?source=.
+		// Like /schema, not reachable from outside: deploy/Caddyfile forwards only the app's calls.
 		if (req.method === 'GET' && path === '/reports') {
 			const date = url.searchParams.get('date');
 			const rows = await reports.list({

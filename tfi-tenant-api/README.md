@@ -48,15 +48,27 @@ app was a pure front end to the read API until this existed.
   The server derives `stop_sequence`,
   `scheduled_departure`, `actual_epoch`, `delay_seconds`, and stamps
   `feed_delay_seconds` (the feed's prediction at report time) before storing.
-  Returns the stored report's `id`, which can be used for undo.
-- `POST /reports/:id/undo` — logically undo a report. The original report row is
+  Returns the stored report's `id` and an `undo_token`.
+
+  Every field is checked (`src/validate.ts`): IDs are short ID-shaped strings,
+  `service_date` a real date within three days of today, `actual_time` a real HH:MM.
+  The body is capped at 4 KB. A `reported_at` more than a day from the server's clock is
+  replaced by the server's time rather than refused.
+- `POST /reports/:id/undo` — logically undo a report. Body `{"undo_token": "..."}`, the
+  token `POST /report` returned: a wrong one is 403. The original report row is
   retained, and an undo marker is stored separately.
+- `GET /health`
+
+Every POST must be `Content-Type: application/json` (415 otherwise). That is what stops
+a web page on another site from posting here through a visitor's browser.
+
+On the box only (`deploy/Caddyfile` forwards just the calls above):
+
 - `GET /reports?date=YYYYMMDD` — recent active reports (inspection). Add
   `include_undone=1` to include undone reports with `undone`/`undone_at` fields, and
   `source=user` to exclude simulated rows.
 - `GET /schema` — applied migrations plus the version this build expects. If they
   disagree, the running process is stale.
-- `GET /health`
 
 ## Storage
 

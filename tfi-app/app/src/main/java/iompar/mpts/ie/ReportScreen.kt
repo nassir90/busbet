@@ -93,7 +93,7 @@ fun ReportScreen(
                         duration = SnackbarDuration.Long,
                     )
                     if (result == SnackbarResult.ActionPerformed) {
-                        runCatching { Api.tenant().undoReport(response.id) }
+                        runCatching { Api.tenant().undoReport(response.id, UndoReportRequest(response.undoToken)) }
                             .onSuccess { Toast.makeText(context, "Report undone", Toast.LENGTH_SHORT).show() }
                             .onFailure {
                                 Toast.makeText(context, "Undo failed: ${it.message ?: "error"}", Toast.LENGTH_LONG).show()

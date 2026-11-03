@@ -70,6 +70,16 @@ export const MIGRATIONS: Migration[] = [
 	// Note: the `boarded` kind ("the user actually got on this bus", as distinct from
 	// "the bus turned up") needed no migration — `kind` is an open TEXT domain precisely
 	// so that new observation types do not require a schema change.
+	{
+		version: 3,
+		name: 'report-undo-token',
+		statements: [
+			// SHA-256 of the token handed to whoever submitted the report; undo must present it.
+			// Without it, anyone could undo any report by counting up the IDs. Rows from before
+			// this are NULL and can no longer be undone over HTTP, only by a script on the box.
+			`ALTER TABLE reports ADD COLUMN undo_token_hash TEXT`,
+		],
+	},
 ];
 
 /** Schema version this build expects; compare against a live `/schema` to spot a stale deploy. */
