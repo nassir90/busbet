@@ -49,8 +49,17 @@ http://:8080 {
 		file_server
 	}
 
+	# Not /departures/{code}/range or /vehicles/{code}/range. Nothing outside the box calls them
+	# (the web app's proxy leaves them out too), and they decode a snapshot per step on the event
+	# loop: one request costs ~7s of CPU, and four at once held /health up for 24s.
 	handle_path /gtfsr-stop-times/* {
-		reverse_proxy 127.0.0.1:8110
+		@range path_regexp (?i)/range/?$
+		handle @range {
+			respond 404
+		}
+		handle {
+			reverse_proxy 127.0.0.1:8110
+		}
 	}
 	# Only what the app calls. GET /reports (every report, with its trip and stop) and GET /schema
 	# are for looking at on the box, at 127.0.0.1:8120.
