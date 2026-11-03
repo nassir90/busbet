@@ -52,8 +52,22 @@ http://:8080 {
 	handle_path /gtfsr-stop-times/* {
 		reverse_proxy 127.0.0.1:8110
 	}
+	# Only what the app calls. GET /reports (every report, with its trip and stop) and GET /schema
+	# are for looking at on the box, at 127.0.0.1:8120.
 	handle_path /tfi-tenant-api/* {
-		reverse_proxy 127.0.0.1:8120
+		@app {
+			method POST
+			path /report /reports/*/undo /feedback
+		}
+		handle @app {
+			reverse_proxy 127.0.0.1:8120
+		}
+		handle /health {
+			reverse_proxy 127.0.0.1:8120
+		}
+		handle {
+			respond 404
+		}
 	}
 	# The web app used to live here. It now owns / (below); old links and bookmarks follow it,
 	# and its ?code= / ?route= URLs are still understood there.
