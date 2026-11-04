@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createSqliteBackend } from './src/sqlite.js';
 import { getDepartures, getDeparturesBatch } from './src/departures.js';
-import { fetchFeed, selectFeed, applyRealtimeDelaysToTrip } from './src/gtfs.js';
+import { fetchFeed, selectTripUpdates, applyRealtimeDelaysToTrip } from './src/gtfs.js';
 import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
 import { parseTimeParam, parseDuration, rangeSteps, RANGE_LIMITS, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
 import { serviceMinutes, minutesUntil, SERVICE_TZ } from './src/servicetime.js';
@@ -229,8 +229,8 @@ const server = http.createServer(async (req, res) => {
 			if (!detail) return respond(res, 404, { message: 'Trip not found' });
 			const at = parseTimeParam(url.searchParams.get('time'));
 			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
-			const { feed, feedTimestamp, stale } = selectFeed(FEEDS_DIR, at ?? undefined, at != null ? lookback : Infinity);
-			applyRealtimeDelaysToTrip(detail, feed);
+			const { updates, feedTimestamp, stale } = selectTripUpdates(FEEDS_DIR, at ?? undefined, at != null ? lookback : Infinity);
+			applyRealtimeDelaysToTrip(detail, updates);
 			return respond(res, 200, { ...detail, feed_timestamp: feedTimestamp, stale });
 		}
 

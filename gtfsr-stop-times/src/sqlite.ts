@@ -39,6 +39,15 @@ function minsToGtfsTime(totalMins: number): string {
 export function createSqliteBackend(dbPath: string): GtfsStorage {
 	const db = openDb(dbPath);
 
+	/**
+	 * Route types per stop, filled on first lookup. They are a walk over every stop_times row of
+	 * the stop with two joins — ~2,000 rows at a busy city-centre stop — and getStopByCode ran it
+	 * on every departures and vehicles request, which made it a third of the service's CPU. The
+	 * timetable never changes under a running process: a reload builds a new file and restarts
+	 * the service (reload-gtfs.sh), so what this holds is valid for as long as the process is.
+	 */
+	const routeTypesByStop = new Map<string, number[]>();
+
 	return {
 		async isSeeded() {
 			const r = await db.execute("SELECT value FROM _meta WHERE key = 'seeded'");
@@ -122,15 +131,20 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 			}
 			if (!r.rows.length) return null;
 			const row = r.rows[0] as unknown as Stop;
-			const rt = await db.execute({
-				sql: `SELECT GROUP_CONCAT(DISTINCT r.route_type) AS route_types
-				      FROM stop_times st
-				      JOIN trips t ON t.trip_id = st.trip_id
-				      JOIN routes r ON r.route_id = t.route_id
-				      WHERE st.stop_id = ?`,
-				args: [row.stop_id]
-			});
-			row.route_types = parseRouteTypes(rt.rows[0]?.route_types as string | null);
+			let routeTypes = routeTypesByStop.get(row.stop_id);
+			if (!routeTypes) {
+				const rt = await db.execute({
+					sql: `SELECT GROUP_CONCAT(DISTINCT r.route_type) AS route_types
+					      FROM stop_times st
+					      JOIN trips t ON t.trip_id = st.trip_id
+					      JOIN routes r ON r.route_id = t.route_id
+					      WHERE st.stop_id = ?`,
+					args: [row.stop_id]
+				});
+				routeTypes = parseRouteTypes(rt.rows[0]?.route_types as string | null);
+				routeTypesByStop.set(row.stop_id, routeTypes);
+			}
+			row.route_types = [...routeTypes];
 			return row;
 		},
 
