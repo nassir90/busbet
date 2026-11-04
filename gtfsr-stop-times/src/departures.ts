@@ -1,5 +1,5 @@
 import type { GtfsStorage, Stop, Departure } from './types.js';
-import { applyRealtimeDelays, selectFeed } from './gtfs.js';
+import { applyTripUpdates, selectTripUpdates } from './gtfs.js';
 import { DEFAULT_LOOKBACK_S } from './snapshots.js';
 import { serviceDate, serviceDayIndex, serviceHour, previousServiceDay } from './servicetime.js';
 
@@ -59,7 +59,7 @@ export async function getDeparturesBatch(
 		})()
 		: null;
 
-	const { feed, feedTimestamp, stale } = selectFeed(feedsDir, atSec, atSec != null ? lookbackSec : Infinity);
+	const { updates, feedTimestamp, stale } = selectTripUpdates(feedsDir, atSec, atSec != null ? lookbackSec : Infinity);
 
 	for (const code of codes) {
 		const stop = await storage.getStopByCode(code);
@@ -74,7 +74,7 @@ export async function getDeparturesBatch(
 			);
 		}
 
-		applyRealtimeDelays(departures, feed);
+		applyTripUpdates(departures, updates);
 		out.set(code, { stop, departures, feed_timestamp: feedTimestamp, stale });
 	}
 

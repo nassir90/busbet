@@ -31,7 +31,7 @@ export const SETTLE_MS = 2_000;
  * trip-updates map (gtfs.ts), so the old 48 held up to ~190 MB once warm. /range walks its
  * snapshots in order, so it only ever needs the last step's feeds, which a small cache keeps.
  */
-const DECODE_CACHE_MAX = 8;
+export const DECODE_CACHE_MAX = 8;
 
 interface Entry { ts: number; file: string }
 interface Index {
