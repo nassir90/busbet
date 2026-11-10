@@ -35,6 +35,20 @@ export interface Departure {
 	estimated_departure: string | null;
 	delay_seconds: number | null;
 	realtime: boolean;
+	/**
+	 * The realtime feed's id for this trip, present only when it differs from trip_id: the feed
+	 * has moved to a timetable not yet published, and the trip was matched by route, direction,
+	 * start time and date instead. Vehicle positions carry this id.
+	 */
+	realtime_trip_id?: string;
+}
+
+/** What a scheduled trip is matched on when the feed has renumbered it (see gtfs.ts tripKey). */
+export interface TripKeyFields {
+	route_id: string;
+	direction_id: number;
+	/** The trip's first scheduled departure, GTFS HH:MM:SS (may pass 24:00:00). */
+	start_time: string;
 }
 
 export interface RouteDirection {
@@ -106,6 +120,8 @@ export interface GtfsStorage {
 	getTripDetail(tripId: string): Promise<TripDetail | null>;
 	getShape(shapeId: string): Promise<ShapePoint[]>;
 	getTripSpans(tripIds: string[]): Promise<Map<string, { first_departure: string; last_arrival: string }>>;
+	/** Route, direction and first departure of each trip, for matching a renumbered feed. */
+	getTripKeyFields(tripIds: string[]): Promise<Map<string, TripKeyFields>>;
 	getShapeForTrip(tripId: string): Promise<ShapePoint[]>;
 	/** The shape of the trip getRouteStops reads, so the line and the stops on a map agree. */
 	getRouteShape(routeShortName: string, directionId: number): Promise<ShapePoint[]>;

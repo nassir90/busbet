@@ -1,5 +1,5 @@
 import type { GtfsStorage, Stop, Departure } from './types.js';
-import { applyTripUpdates, selectTripUpdates } from './gtfs.js';
+import { applyTripUpdates, selectTripUpdates, tripIdForKey, tripKey, tripKeyIndex, type TripUpdates } from './gtfs.js';
 import { DEFAULT_LOOKBACK_S } from './snapshots.js';
 import { serviceDate, serviceDayIndex, serviceHour, previousServiceDay } from './servicetime.js';
 
@@ -10,6 +10,35 @@ export interface DeparturesResult {
 	departures: Departure[];
 	feed_timestamp: number | null;
 	stale: boolean;
+}
+
+/**
+ * For the scheduled trips the feed doesn't know by id, the feed's id for the same trip, matched
+ * on route, direction, first departure and service date (see tripKey in gtfs.ts). Each trip is
+ * tried on its candidate dates in order; the first that matches wins. Trips without a live update
+ * at all (no realtime for that service yet) are looked up too, but each trip's fields are read
+ * from the timetable once per process (getTripKeyFields caches them), so a busy stop costs one
+ * small indexed query the first time and none after.
+ */
+export async function realtimeTripIdsFor(
+	storage: GtfsStorage,
+	updates: TripUpdates | null,
+	trips: { trip_id: string; dates: string[] }[],
+): Promise<Map<string, string>> {
+	const out = new Map<string, string>();
+	if (!updates || !tripKeyIndex(updates).size) return out;
+	const unmatched = trips.filter((t) => !updates.has(t.trip_id));
+	if (!unmatched.length) return out;
+	const fields = await storage.getTripKeyFields(unmatched.map((t) => t.trip_id));
+	for (const t of unmatched) {
+		const f = fields.get(t.trip_id);
+		if (!f) continue;
+		for (const date of t.dates) {
+			const rtId = tripIdForKey(updates, tripKey(f.route_id, f.direction_id, f.start_time, date));
+			if (rtId) { out.set(t.trip_id, rtId); break; }
+		}
+	}
+	return out;
 }
 
 export async function getDepartures(
@@ -52,11 +81,9 @@ export async function getDeparturesBatch(
 	const activeServices = await storage.getActiveServiceIds(todayName, today);
 
 	// Overnight services roll over from the previous day; resolved once for the whole batch.
-	const overnightServices = serviceHour(now) < 4
-		? await (async () => {
-			const yesterday = previousServiceDay(now);
-			return storage.getActiveServiceIds(DAY_NAMES[yesterday.dayIndex], yesterday.date);
-		})()
+	const yesterday = serviceHour(now) < 4 ? previousServiceDay(now) : null;
+	const overnightServices = yesterday
+		? await storage.getActiveServiceIds(DAY_NAMES[yesterday.dayIndex], yesterday.date)
 		: null;
 
 	const { updates, feedTimestamp, stale } = selectTripUpdates(feedsDir, atSec, atSec != null ? lookbackSec : Infinity);
@@ -66,15 +93,18 @@ export async function getDeparturesBatch(
 		if (!stop) continue;
 
 		let departures = await storage.getScheduledDepartures(stop.stop_id, activeServices, 105, 0, now);
+		// The service date each departure runs on, which a renumbered trip is matched by.
+		const dates: { trip_id: string; dates: string[] }[] = departures.map((d) => ({ trip_id: d.trip_id, dates: [today] }));
 
-		if (overnightServices) {
+		if (overnightServices && yesterday) {
 			const overnight = await storage.getScheduledDepartures(stop.stop_id, overnightServices, 105, 24, now);
+			for (const d of overnight) dates.push({ trip_id: d.trip_id, dates: [yesterday.date] });
 			departures = [...departures, ...overnight].sort((a, b) =>
 				a.scheduled_departure.localeCompare(b.scheduled_departure)
 			);
 		}
 
-		applyTripUpdates(departures, updates);
+		applyTripUpdates(departures, updates, await realtimeTripIdsFor(storage, updates, dates));
 		out.set(code, { stop, departures, feed_timestamp: feedTimestamp, stale });
 	}
 

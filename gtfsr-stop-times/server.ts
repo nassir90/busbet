@@ -1,11 +1,11 @@
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createSqliteBackend } from './src/sqlite.js';
-import { getDepartures, getDeparturesBatch } from './src/departures.js';
-import { fetchFeed, selectTripUpdates, applyRealtimeDelaysToTrip } from './src/gtfs.js';
+import { getDepartures, getDeparturesBatch, realtimeTripIdsFor } from './src/departures.js';
+import { fetchFeed, selectTripUpdates, applyRealtimeDelaysToTrip, type TripUpdates } from './src/gtfs.js';
 import { getVehiclesForTrips, vehiclesDirFromFeedsDir } from './src/vehicles.js';
 import { parseTimeParam, parseDuration, rangeSteps, RANGE_LIMITS, DEFAULT_LOOKBACK_S } from './src/snapshots.js';
-import { serviceMinutes, minutesUntil, SERVICE_TZ } from './src/servicetime.js';
+import { serviceMinutes, minutesUntil, SERVICE_TZ, serviceDate, previousServiceDay } from './src/servicetime.js';
 
 /**
  * Ceiling on stops per batch departures call. A home screen has a handful of favourites; this is
@@ -79,6 +79,17 @@ function buildTripUpdatesJson(feed: Awaited<ReturnType<typeof fetchFeed>>) {
 	return out;
 }
 
+/**
+ * The feed's id for one timetable trip the feed has renumbered, or undefined. A single trip
+ * carries no service date, so it is tried on the instant's service date and then the day before
+ * (a trip still running after midnight).
+ */
+async function realtimeTripIdFor(tripId: string, updates: TripUpdates | null, atSec: number | undefined) {
+	const at = atSec != null ? new Date(atSec * 1000) : new Date();
+	const dates = [serviceDate(at), previousServiceDay(at).date];
+	return (await realtimeTripIdsFor(storage, updates, [{ trip_id: tripId, dates }])).get(tripId);
+}
+
 /** Vehicle positions for trips departing `stopCode` within `windowMins`, at the given instant. */
 async function vehiclesAt(stopCode: string, atSec: number | undefined, windowMins: number, lookbackSec: number) {
 	const deps = await getDepartures(stopCode, storage, FEEDS_DIR, atSec, lookbackSec);
@@ -93,7 +104,7 @@ async function vehiclesAt(stopCode: string, atSec: number | undefined, windowMin
 				const [h, m] = (d.estimated_departure ?? d.scheduled_departure).split(':').map(Number);
 				return minutesUntil(h * 60 + m, nowMins) <= windowMins;
 			})
-			.map((d) => [d.trip_id, { route: d.route_short_name, delay: d.delay_seconds }])
+			.map((d) => [d.realtime_trip_id ?? d.trip_id, { route: d.route_short_name, delay: d.delay_seconds, trip_id: d.trip_id }])
 	);
 	const result = getVehiclesForTrips(tripMap, VEHICLES_DIR, atSec, lookbackSec);
 	return { ...result, positions: await withTripSpans(result.positions) };
@@ -230,7 +241,7 @@ const server = http.createServer(async (req, res) => {
 			const at = parseTimeParam(url.searchParams.get('time'));
 			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
 			const { updates, feedTimestamp, stale } = selectTripUpdates(FEEDS_DIR, at ?? undefined, at != null ? lookback : Infinity);
-			applyRealtimeDelaysToTrip(detail, updates);
+			applyRealtimeDelaysToTrip(detail, updates, await realtimeTripIdFor(detail.trip_id, updates, at ?? undefined));
 			return respond(res, 200, { ...detail, feed_timestamp: feedTimestamp, stale });
 		}
 
@@ -273,8 +284,10 @@ const server = http.createServer(async (req, res) => {
 			const lookback = parseDuration(url.searchParams.get('lookback'), DEFAULT_LOOKBACK_S);
 			const detail = await storage.getTripDetail(tripId);
 			const route = detail?.route_short_name ?? '';
+			const { updates } = selectTripUpdates(FEEDS_DIR, at ?? undefined, at != null ? lookback : Infinity);
+			const rtId = await realtimeTripIdFor(tripId, updates, at ?? undefined);
 			const v = getVehiclesForTrips(
-				new Map([[tripId, { route, delay: null }]]),
+				new Map([[rtId ?? tripId, { route, delay: null, trip_id: tripId }]]),
 				VEHICLES_DIR,
 				at ?? undefined,
 				lookback,
