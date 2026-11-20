@@ -292,7 +292,7 @@ fun StopScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun RouteFilterDialog(
+internal fun RouteFilterDialog(
     routes: List<String>,
     hidden: Set<String>,
     isFavourite: Boolean,

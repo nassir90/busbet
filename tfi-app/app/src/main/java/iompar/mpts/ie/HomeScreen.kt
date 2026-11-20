@@ -1,7 +1,10 @@
 package iompar.mpts.ie
 
 import androidx.compose.foundation.background
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
@@ -10,7 +13,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
@@ -30,7 +37,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.async
@@ -203,9 +224,18 @@ fun HomeScreen(
             }
     }
 
+    // The card being held, launcher-style: it stays lit while everything else fades, with its
+    // actions in a menu beside it. Moving the finger turns the hold into a drag to reorder, which
+    // drops the menu; a tap anywhere else, or Back, lets go.
+    var heldCode by remember { mutableStateOf<String?>(null) }
+    BackHandler(enabled = heldCode != null) { heldCode = null }
+    val fadeOthers = Modifier.alpha(if (heldCode != null) FADED_ALPHA else 1f)
+
     val listState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
         localOrder = localOrder.toMutableList().apply { add(to.index, removeAt(from.index)) }
+        // The held card has started moving: it's a drag now, not a press-for-menu.
+        heldCode = null
     }
 
     var showTimePanel by remember { mutableStateOf(false) }
@@ -303,7 +333,7 @@ fun HomeScreen(
                 // corners with the card shape; a text field defaults to a much tighter one, so
                 // the box read as a different kind of object stacked on the list.
                 shape = CardDefaults.elevatedShape,
-                modifier = Modifier.fillMaxWidth().onFocusChanged { searchFocused = it.isFocused },
+                modifier = Modifier.fillMaxWidth().then(fadeOthers).onFocusChanged { searchFocused = it.isFocused },
             )
             Spacer(Modifier.height(8.dp))
 
@@ -473,11 +503,15 @@ fun HomeScreen(
                     items(displayList, key = { it.code }) { fav ->
                         ReorderableItem(reorderState, key = fav.code) { isDragging ->
                             // Manual reordering only applies when not sorting by distance.
+                            // Holding the card both opens its menu and picks it up; with the list
+                            // sorted by distance there's no order to change, so only the menu.
                             val handleModifier = if (sortByDistance) Modifier
                                 else Modifier
-                                    .padding(horizontal = 8.dp)
-                                    .draggableHandle(
-                                        onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                                    .longPressDraggableHandle(
+                                        onDragStarted = {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            heldCode = fav.code
+                                        },
                                         onDragStopped = {
                                             scope.launch { favStore.reorder(localOrder.map { it.code }) }
                                         },
@@ -495,7 +529,14 @@ fun HomeScreen(
                             FavouriteCard(
                                 favourite = fav,
                                 isDragging = isDragging,
-                                showHandle = !sortByDistance,
+                                held = heldCode == fav.code,
+                                faded = heldCode != null && heldCode != fav.code,
+                                onHold = {
+                                    if (heldCode != fav.code) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    heldCode = fav.code
+                                },
+                                onRelease = { if (heldCode == fav.code) heldCode = null },
+                                onSetHiddenRoutes = { routes -> scope.launch { favStore.setHiddenRoutes(fav.code, routes) } },
                                 distanceLabel = distanceLabel,
                                 dimmed = isFar,
                                 autoCollapsed = isFar,
@@ -589,6 +630,7 @@ private fun SectionLabel(text: String) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FavouriteCard(
     favourite: Favourite,
@@ -608,7 +650,18 @@ private fun FavouriteCard(
     /** True when the server says this stop code isn't in the timetable at all. */
     notInTimetable: Boolean,
     nowMins: Int,
-    showHandle: Boolean = true,
+    /** This card is being held: lit, lifted, with its action menu open. */
+    held: Boolean = false,
+    /** Another card is being held, so this one fades back. */
+    faded: Boolean = false,
+    /**
+     * Long press on the header. The drag handle on the whole card also reports a hold, but the
+     * header needs its own: without a long-press handler, releasing a hold counts as a tap and
+     * opens the stop.
+     */
+    onHold: () -> Unit = {},
+    onRelease: () -> Unit = {},
+    onSetHiddenRoutes: (List<String>) -> Unit = {},
     distanceLabel: String? = null,
     dimmed: Boolean = false,
     autoCollapsed: Boolean = false,
@@ -626,6 +679,7 @@ private fun FavouriteCard(
     // persisted collapsed state. Peek resets whenever the stop moves in/out of "far".
     var peek by remember(favourite.code, autoCollapsed) { mutableStateOf(false) }
     val collapsed = if (autoCollapsed) !peek else favourite.collapsed
+    val toggleCollapsed = { if (autoCollapsed) peek = !peek else onToggleCollapsed() }
 
     // The route filter is per-favourite config, so it's applied here rather than at the shared
     // fetch: two cards can hide different routes from the same batch response.
@@ -634,34 +688,101 @@ private fun FavouriteCard(
         board?.departures?.filter { it.routeShortName !in hiddenRoutes }?.take(3)
     }
 
+    var showRoutes by remember { mutableStateOf(false) }
+    if (showRoutes) {
+        // Every route known to call here, falling back to what the board shows if the lookup
+        // hasn't landed, so the list is never empty while buses are clearly running.
+        var routes by remember { mutableStateOf(board?.departures?.map { it.routeShortName }?.distinct()?.sorted() ?: emptyList()) }
+        LaunchedEffect(favourite.code) {
+            runCatching { StopRoutesCache.get(favourite.code) }.getOrNull()
+                ?.takeIf { it.isNotEmpty() }?.let { routes = it.sorted() }
+        }
+        RouteFilterDialog(
+            routes = routes,
+            hidden = hiddenRoutes,
+            isFavourite = true,
+            onToggle = { r -> onSetHiddenRoutes((if (r in hiddenRoutes) hiddenRoutes - r else hiddenRoutes + r).toList()) },
+            onShowAll = { onSetHiddenRoutes(emptyList()) },
+            onDismiss = { showRoutes = false },
+        )
+    }
+
+    val lifted = held || isDragging
+    // The hold menu is exactly as wide as the card it belongs to.
+    var cardWidthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val heldNow = rememberUpdatedState(held)
+    val releaseNow = rememberUpdatedState(onRelease)
+    // The menu hangs off the card itself: DropdownMenu puts it below the card, or above when
+    // there isn't room below, and a tap anywhere outside it dismisses both menu and hold.
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .alpha(if (faded) FADED_ALPHA else if (dimmed) 0.45f else 1f)
+            .onSizeChanged { cardWidthPx = it.width }
+            // Hold gives a menu or a move, never both: the moment the finger travels past the
+            // touch slop the menu goes, and dropping the card doesn't bring it back.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                            .firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (heldNow.value && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                            releaseNow.value()
+                            break
+                        }
+                    }
+                }
+            }
+            .then(handleModifier),
+    ) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth().alpha(if (dimmed) 0.45f else 1f),
+        modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = if (isDragging) 8.dp else 1.dp,
+            defaultElevation = if (lifted) 8.dp else 1.dp,
         ),
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = if (collapsed) 6.dp else 12.dp)) {
+            // One row: [handle] logo, name and subtitle taking every spare dp, then 48dp icon
+            // targets. The name wraps at word boundaries for two lines and then ellipsises; it
+            // never yields its width to the controls.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Mode logo left of the name, once the board tells us what serves this stop.
                 val cardModeTypes = board?.stop?.routeTypes
                 if (!cardModeTypes.isNullOrEmpty()) {
                     StopModeIcon(cardModeTypes)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                 }
-                Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
-                    Text(favourite.displayName, style = MaterialTheme.typography.titleMedium)
-                    if (!favourite.customName.isNullOrBlank()) {
-                        Text(
-                            favourite.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .combinedClickable(
+                            // A closed card opens up on a tap; an open one goes to the stop board.
+                            onClick = if (collapsed) toggleCollapsed else onOpen,
+                            onClickLabel = if (collapsed) "Expand" else null,
+                            onLongClick = onHold,
+                            onLongClickLabel = "Show actions",
                         )
-                    }
+                        .padding(vertical = 8.dp),
+                ) {
+                    Text(
+                        favourite.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // The stop's own name rides along with its code when the user renamed it.
                         Text(
-                            favourite.code,
+                            if (favourite.customName.isNullOrBlank()) favourite.code
+                            else "${favourite.code} · ${favourite.name}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         if (distanceLabel != null) {
                             // No separator: the distance is already set apart by its colour, and a
@@ -671,26 +792,24 @@ private fun FavouriteCard(
                                 distanceLabel,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
                             )
                         }
                     }
                 }
-                if (showHandle) {
-                    Text(
-                        "⠿",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = handleModifier,
-                    )
+                // Open cards carry a ⌄ caret that closes them. Closed cards carry nothing, so the
+                // name gets the whole row; tapping a closed card opens it.
+                if (!collapsed) {
+                    IconButton(onClick = toggleCollapsed) {
+                        Icon(
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = "Collapse",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                TextButton(
-                    onClick = { if (autoCollapsed) peek = !peek else onToggleCollapsed() },
-                ) { Text(if (collapsed) "Expand" else "Collapse") }
-                TextButton(onClick = { showRename = true }) { Text("Rename") }
-                TextButton(onClick = onRemove) { Text("Remove") }
             }
             if (!collapsed) {
-                Spacer(Modifier.height(4.dp))
                 when {
                     // Distinct from a failed load: this stop is gone from the timetable, so
                     // waiting won't help. It used to sit on "Loading…" indefinitely.
@@ -716,5 +835,76 @@ private fun FavouriteCard(
                 }
             }
         }
+    }
+    if (held) {
+        val gapPx = with(density) { MENU_GAP.roundToPx() }
+        Popup(
+            popupPositionProvider = remember(gapPx) { BesideCard(gapPx) },
+            onDismissRequest = onRelease,
+            properties = PopupProperties(focusable = true),
+        ) {
+            Surface(
+                modifier = Modifier.width(with(density) { cardWidthPx.toDp() }),
+                shape = CardDefaults.elevatedShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp,
+            ) {
+                Column(Modifier.padding(vertical = 8.dp)) {
+                    CardAction(Icons.Filled.Edit, "Rename") { onRelease(); showRename = true }
+                    CardAction(Icons.Filled.AltRoute, "Choose routes") { onRelease(); showRoutes = true }
+                    HorizontalDivider()
+                    CardAction(Icons.Filled.Delete, "Delete", MaterialTheme.colorScheme.error) { onRelease(); onRemove() }
+                }
+            }
+        }
+    }
+    }
+}
+
+/** Space between a held card and its menu. */
+private val MENU_GAP = 8.dp
+
+/**
+ * Puts a held card's menu below the card, or above it when it won't fit below, [gapPx] clear of
+ * the card either way. Left edges line up, as the menu is the card's width.
+ */
+private class BesideCard(private val gapPx: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val below = anchorBounds.bottom + gapPx
+        val y = if (below + popupContentSize.height <= windowSize.height) below
+            else (anchorBounds.top - gapPx - popupContentSize.height).coerceAtLeast(0)
+        return IntOffset(anchorBounds.left, y)
+    }
+}
+
+/** How far the rest of the screen fades back while a card is held. */
+private const val FADED_ALPHA = 0.3f
+
+/** One full-width row of a held card's menu: icon and label, centred together. */
+@Composable
+private fun CardAction(
+    icon: ImageVector,
+    label: String,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = color, style = MaterialTheme.typography.titleSmall)
     }
 }
