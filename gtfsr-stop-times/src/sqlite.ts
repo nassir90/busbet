@@ -48,6 +48,35 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 	 */
 	const routeTypesByStop = new Map<string, number[]>();
 
+	/**
+	 * Set [Stop.towards] on the Luas stops in a search result: the headsign of most trips calling
+	 * there. Both platforms of a Luas stop share a stop_code and a name, so without this the two
+	 * rows read the same. Trips headed for this stop itself are left out, or a terminus platform
+	 * would read "Tallaght → Tallaght".
+	 */
+	async function addTowards(stops: Stop[]) {
+		const luas = stops.filter((s) => s.route_types?.includes(0));
+		if (!luas.length) return;
+		const r = await db.execute({
+			sql: `SELECT st.stop_id, t.trip_headsign AS headsign, COUNT(*) AS n
+			      FROM stop_times st JOIN trips t ON t.trip_id = st.trip_id
+			      WHERE st.stop_id IN (${luas.map(() => '?').join(',')})
+			      GROUP BY st.stop_id, t.trip_headsign
+			      ORDER BY st.stop_id, n DESC, headsign`,
+			args: luas.map((s) => s.stop_id)
+		});
+		const squash = (name: string) => name.replace(/\W/g, '').toUpperCase();
+		for (const stop of luas) {
+			const top = r.rows.find(
+				(row) =>
+					row.stop_id === stop.stop_id &&
+					!!row.headsign &&
+					squash(row.headsign as string) !== squash(stop.stop_name)
+			);
+			if (top) stop.towards = top.headsign as string;
+		}
+	}
+
 	return {
 		async isSeeded() {
 			const r = await db.execute("SELECT value FROM _meta WHERE key = 'seeded'");
@@ -96,7 +125,7 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 				               length(m.stop_code), m.stop_code, m.stop_name`,
 				args: { exact: query.toUpperCase(), prefix: `${q}%`, word: `% ${q}%`, any: `%${q}%` }
 			});
-			return r.rows.map((row) => ({
+			const stops = r.rows.map((row) => ({
 				stop_id: row.stop_id as string,
 				stop_code: row.stop_code as string,
 				stop_name: row.stop_name as string,
@@ -107,6 +136,8 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 					: [],
 				route_types: parseRouteTypes(row.route_types as string | null)
 			})) as Stop[];
+			await addTowards(stops);
+			return stops;
 		},
 
 		async getStopByCode(code: string) {

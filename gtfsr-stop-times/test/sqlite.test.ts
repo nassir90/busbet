@@ -71,3 +71,52 @@ test('a stop by id or code carries the sorted route types that serve it', async 
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test('search names the destination of each Luas platform, and only of Luas platforms', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'busbet-sqlite-test-'));
+	try {
+		const path = join(dir, 'gtfs.db');
+		const db = createClient({ url: `file:${path}` });
+		await db.executeMultiple(`
+			CREATE TABLE stops (stop_id TEXT PRIMARY KEY, stop_code TEXT, stop_name TEXT, stop_lat REAL, stop_lon REAL);
+			CREATE TABLE routes (route_id TEXT PRIMARY KEY, route_short_name TEXT, route_long_name TEXT, agency_id TEXT, route_type INTEGER);
+			CREATE TABLE trips (trip_id TEXT PRIMARY KEY, route_id TEXT, service_id TEXT, trip_headsign TEXT, direction_id INTEGER, shape_id TEXT);
+			CREATE TABLE stop_times (trip_id TEXT, stop_id TEXT, stop_sequence INTEGER, arrival_time TEXT, departure_time TEXT, PRIMARY KEY (trip_id, stop_sequence));
+			-- Two platforms under one code and one name, as the NTA feed has them.
+			INSERT INTO stops VALUES ('GA404', '998020', 'Jervis', 53.34, -6.26);
+			INSERT INTO stops VALUES ('GA405', '998020', 'Jervis', 53.34, -6.26);
+			-- A terminus: every trip either starts here or ends here.
+			INSERT INTO stops VALUES ('GA344', '998001', 'Tallaght', 53.28, -6.37);
+			INSERT INTO stops VALUES ('B1', '1001', 'Jervis Street', 53.34, -6.26);
+			INSERT INTO routes VALUES ('RED', 'Red', 'Luas Red', 'L', 0);
+			INSERT INTO routes VALUES ('B', '37', 'Bus', 'A', 3);
+			INSERT INTO trips VALUES ('w1', 'RED', 's', 'Tallaght', 0, NULL);
+			INSERT INTO trips VALUES ('w2', 'RED', 's', 'Tallaght', 0, NULL);
+			INSERT INTO trips VALUES ('w3', 'RED', 's', 'Saggart', 0, NULL);
+			INSERT INTO trips VALUES ('e1', 'RED', 's', 'The Point', 1, NULL);
+			INSERT INTO trips VALUES ('b1', 'B', 's', 'Blanchardstown', 0, NULL);
+			INSERT INTO stop_times VALUES ('w1', 'GA404', 1, '10:00:00', '10:00:00');
+			INSERT INTO stop_times VALUES ('w2', 'GA404', 1, '10:10:00', '10:10:00');
+			INSERT INTO stop_times VALUES ('w3', 'GA404', 1, '10:20:00', '10:20:00');
+			INSERT INTO stop_times VALUES ('e1', 'GA405', 1, '10:05:00', '10:05:00');
+			INSERT INTO stop_times VALUES ('w1', 'GA344', 9, '10:40:00', '10:40:00');
+			INSERT INTO stop_times VALUES ('w2', 'GA344', 9, '10:50:00', '10:50:00');
+			INSERT INTO stop_times VALUES ('e1', 'GA344', 0, '09:30:00', '09:30:00');
+			INSERT INTO stop_times VALUES ('b1', 'B1', 1, '10:00:00', '10:00:00');
+		`);
+		db.close();
+		const storage = createSqliteBackend(path);
+
+		const towards = (stops: { stop_id: string; towards?: string }[]) =>
+			Object.fromEntries(stops.map((s) => [s.stop_id, s.towards]));
+
+		// Each platform reads as its main destination; the bus stop gets nothing.
+		assert.deepEqual(towards(await storage.searchStops('Jervis')), {
+			GA404: 'Tallaght', GA405: 'The Point', B1: undefined,
+		});
+		// More trams end at Tallaght than leave it, but "Tallaght → Tallaght" says nothing.
+		assert.deepEqual(towards(await storage.searchStops('Tallaght')), { GA344: 'The Point' });
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});

@@ -283,9 +283,10 @@ class NearestFavouriteWidget : GlanceAppWidget() {
             modifier = GlanceModifier.fillMaxWidth().padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            val line = lineColors(d.routeShortName, d.routeType)
             Box(
                 modifier = GlanceModifier
-                    .background(pal.accent)
+                    .background(line?.let { Color(it.container) } ?: pal.accent)
                     .cornerRadius(6.dp)
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 contentAlignment = Alignment.Center,
@@ -293,7 +294,7 @@ class NearestFavouriteWidget : GlanceAppWidget() {
                 Text(
                     d.routeShortName,
                     style = TextStyle(
-                        color = ColorProvider(pal.routePillText),
+                        color = ColorProvider(line?.let { Color(it.content) } ?: pal.routePillText),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                     ),

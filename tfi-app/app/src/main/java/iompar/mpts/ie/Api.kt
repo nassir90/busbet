@@ -26,16 +26,35 @@ data class Stop(
      * [TransitMode.ofStop] picks one for the stop's logo.
      */
     @SerializedName("route_types") val routeTypes: List<Int>? = null,
+    /**
+     * Where most services from this stop are headed. Search sets it on Luas stops only, where it
+     * is the one thing that tells the two platforms of a stop apart. Null elsewhere.
+     */
+    @SerializedName("towards") val towards: String? = null,
 )
 
 /**
- * The identifier to address this stop by in API calls (open a board, favourite it). Rail stations
- * carry stop_code "0" in the NTA feed, so 84 of them share one code and can't be told apart — those
- * fall back to the unique stop_id. The backend resolves a stop_id or a stop_code interchangeably,
- * so bus stops keep using their familiar numeric code.
+ * The identifier to address this stop by in API calls (open a board, favourite it). Most stops use
+ * their familiar stop_code, but two kinds share one, and those fall back to the unique stop_id
+ * (the backend resolves either):
+ *  - rail stations, 84 of which carry stop_code "0" in the NTA feed;
+ *  - Luas stops, where both platforms share a code. Opening the code always lands on the same
+ *    platform, so trams in the other direction could never be seen.
  */
 val Stop.addressId: String
-    get() = if (stopCode.isBlank() || stopCode == "0") stopId else stopCode
+    get() = when {
+        stopCode.isBlank() || stopCode == "0" -> stopId
+        TransitMode.ofStop(routeTypes) == TransitMode.TRAM -> stopId
+        else -> stopCode
+    }
+
+/** The stop's name, plus its direction when the name alone can't tell platforms apart. */
+val Stop.displayName: String
+    get() = if (towards.isNullOrBlank()) stopName else "$stopName → $towards"
+
+/** The label a search result shows: "code  name", without the code where it isn't the address. */
+val Stop.searchLabel: String
+    get() = if (addressId == stopId) displayName else "$stopCode  $displayName"
 
 data class Departure(
     @SerializedName("trip_id") val tripId: String,
