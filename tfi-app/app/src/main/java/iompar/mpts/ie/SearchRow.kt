@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -80,13 +81,15 @@ private fun EllipsisMark() {
 
 @Composable
 private fun ServiceChip(text: String) {
+    // Luas lines wear their own colour; every other route uses the theme's.
+    val line = lineColors(text)
     Text(
         text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onPrimary,
+        color = line?.let { Color(it.content) } ?: MaterialTheme.colorScheme.onPrimary,
         maxLines = 1,
         modifier = Modifier
-            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+            .background(line?.let { Color(it.container) } ?: MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }

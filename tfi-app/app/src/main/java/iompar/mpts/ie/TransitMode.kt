@@ -42,3 +42,25 @@ enum class TransitMode(val label: String) {
         }
     }
 }
+
+/** The fixed colours of a named line: the pill's fill and the text drawn on it. */
+data class LineColors(val container: Long, val content: Long)
+
+/**
+ * The Luas lines' own colours, so a "Red" or "Green" pill reads as the line a rider sees on the
+ * platform signs rather than as one more route in the theme colour. Bus and rail routes have no
+ * fixed colour and get null; callers fall back to their usual theme pill. Matched by name, since
+ * search results carry route names without types; [routeType], when known, guards against some
+ * future bus route called "Red".
+ */
+fun lineColors(routeShortName: String, routeType: Int? = null): LineColors? {
+    if (routeType != null && TransitMode.of(routeType) != TransitMode.TRAM) return null
+    return when (routeShortName.trim().lowercase()) {
+        "red" -> LUAS_RED
+        "green" -> LUAS_GREEN
+        else -> null
+    }
+}
+
+val LUAS_RED = LineColors(container = 0xFFD7282F, content = 0xFFFFFFFF)
+val LUAS_GREEN = LineColors(container = 0xFF00A651, content = 0xFFFFFFFF)

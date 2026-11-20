@@ -403,13 +403,11 @@ fun HomeScreen(
                         if (stopResults.isNotEmpty()) {
                             item { SectionLabel("Stops") }
                             items(stopResults) { s ->
-                                // Rail stations share stop_code "0"; address them by stop_id so the
-                                // right station is opened and favourited. Bus/Luas keep their code.
+                                // Rail stations and Luas platforms share stop codes; address them
+                                // by stop_id so the right one is opened and favourited.
                                 val stopId = s.addressId
                                 val isFavourite = stopId in favouriteCodes
-                                val stopLabel =
-                                    if (s.stopCode.isBlank() || s.stopCode == "0") s.stopName
-                                    else "${s.stopCode}  ${s.stopName}"
+                                val stopLabel = s.searchLabel
                                 CompactSearchRow(
                                     label = stopLabel,
                                     services = s.routes,
@@ -431,7 +429,7 @@ fun HomeScreen(
                                                 .clickable {
                                                     scope.launch {
                                                         if (isFavourite) favStore.remove(stopId)
-                                                        else favStore.add(stopId, s.stopName, s.stopLat, s.stopLon)
+                                                        else favStore.add(stopId, s.displayName, s.stopLat, s.stopLon)
                                                     }
                                                 }
                                                 .padding(3.dp),
