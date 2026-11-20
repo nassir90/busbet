@@ -5,18 +5,29 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 
 /**
  * A search result line shared by the home-screen stop/route search and the notification sheet's
@@ -45,10 +56,11 @@ fun CompactSearchRow(
             Spacer(Modifier.width(12.dp))
         }
         Text(
-            label,
+            withArrows(label),
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            inlineContent = ARROW_CONTENT,
             modifier = Modifier.weight(1f),
         )
         if (!services.isNullOrEmpty()) {
@@ -69,6 +81,37 @@ fun CompactSearchRow(
         }
     }
 }
+
+private const val ARROW_ID = "arrow"
+
+/**
+ * [label] with each " → " drawn as a Material arrow icon. The font's "→" glyph sits small and
+ * low next to the text; the icon is sized and centred to the line. Labels stay plain strings with
+ * "→" in them (they are stored in search history), so only the drawing changes.
+ */
+private fun withArrows(label: String): AnnotatedString = buildAnnotatedString {
+    label.split(" → ").forEachIndexed { i, part ->
+        if (i > 0) {
+            append(" ")
+            appendInlineContent(ARROW_ID, "→")
+            append(" ")
+        }
+        append(part)
+    }
+}
+
+private val ARROW_CONTENT = mapOf(
+    ARROW_ID to InlineTextContent(
+        Placeholder(width = 1.em, height = 1.em, placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter),
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxSize(),
+        )
+    },
+)
 
 @Composable
 private fun EllipsisMark() {
