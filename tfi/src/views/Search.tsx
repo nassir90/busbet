@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { fetchJson, paths, prefetch, type RouteDirection, type Stop } from '../api';
-import { Star } from '../components';
+import { fetchJson, lineClass, paths, prefetch, stopAddress, stopDisplayName, type RouteDirection, type Stop } from '../api';
+import { Arrowed, isStopCode, Star } from '../components';
 import { href, Link, navigate } from '../router';
 import { addFavourite, forgetHistory, recordHistory, removeFavourite, useFavourites, useHistory, type HistoryEntry } from '../store';
 
@@ -35,7 +35,7 @@ export function Chips({ routes }: { routes?: string[] }) {
 	const shown = routes.slice(0, MAX_CHIPS);
 	return (
 		<span class="chips" aria-label={`Routes ${routes.join(', ')}`}>
-			{shown.map((r) => <span key={r} class="chip chip-sm static">{r}</span>)}
+			{shown.map((r) => <span key={r} class={`chip chip-sm static ${lineClass(r)}`}>{r}</span>)}
 			{routes.length > shown.length && <span class="more">+{routes.length - shown.length}</span>}
 		</span>
 	);
@@ -99,7 +99,7 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 		// A bare stop number goes straight to its board, as on the old page.
 		if (/^\d{1,7}$/.test(query)) { navigate(href.stop(query)); return; }
 		const first = res?.stops[0];
-		if (first) { recordStop(first); navigate(href.stop(first.stop_code)); }
+		if (first) { recordStop(first); navigate(href.stop(stopAddress(first))); }
 	};
 
 	const showRecent = !query && focused && history.length > 0;
@@ -153,8 +153,8 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 											prefetch={() => dirs.forEach((d) => prefetch(paths.routeStops(route, d.direction_id), 3_600_000))}
 											onClick={() => recordHistory({ kind: 'route', route, label: routeLabel(dirs) })}
 										>
-											<span class="chip">{route}</span>
-											<span class="row-main">{routeLabel(dirs)}</span>
+											<span class={`chip ${lineClass(route)}`}>{route}</span>
+											<span class="row-main"><span><Arrowed text={routeLabel(dirs)} /></span></span>
 										</Link>
 									</li>
 								))}
@@ -166,28 +166,31 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 							<h2 class="label">Stops</h2>
 							<ul class="list">
 								{res.stops.map((s) => {
-									const fav = favourites.some((f) => f.code === s.stop_code);
+									// Rail stations and Luas platforms share codes; they go by stop_id.
+									const id = stopAddress(s);
+									const name = stopDisplayName(s);
+									const fav = favourites.some((f) => f.code === id);
 									return (
 										<li key={s.stop_id} class="with-action">
 											<Link
 												class="row"
-												href={href.stop(s.stop_code)}
-												prefetch={() => prefetch(paths.departures(s.stop_code))}
+												href={href.stop(id)}
+												prefetch={() => prefetch(paths.departures(id))}
 												onClick={() => recordStop(s)}
 											>
 												<span class="row-main">
-													<span>{s.stop_name}</span>
-													<span class="code">{s.stop_code}</span>
+													<span><Arrowed text={name} /></span>
+													{s.stop_code !== '0' && <span class="code">{s.stop_code}</span>}
 												</span>
 												<Chips routes={s.routes} />
 											</Link>
 											<button
 												class={`icon-btn subtle${fav ? ' on' : ''}`}
-												aria-label={`${fav ? 'Remove' : 'Add'} ${s.stop_name} (${s.stop_code}) ${fav ? 'from' : 'to'} favourites`}
+												aria-label={`${fav ? 'Remove' : 'Add'} ${name} (${s.stop_code}) ${fav ? 'from' : 'to'} favourites`}
 												aria-pressed={fav}
 												onClick={() => fav
-													? removeFavourite(s.stop_code)
-													: addFavourite({ code: s.stop_code, name: s.stop_name, lat: s.stop_lat, lon: s.stop_lon })}
+													? removeFavourite(id)
+													: addFavourite({ code: id, name, lat: s.stop_lat, lon: s.stop_lon })}
 											>
 												<Star on={fav} />
 											</button>
@@ -208,7 +211,7 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 }
 
 function recordStop(s: Stop) {
-	recordHistory({ kind: 'stop', code: s.stop_code, name: s.stop_name, routes: s.routes });
+	recordHistory({ kind: 'stop', code: stopAddress(s), name: stopDisplayName(s), routes: s.routes });
 }
 
 export function HistoryList({ entries, title = 'Recent' }: { entries: HistoryEntry[]; title?: string }) {
@@ -225,10 +228,10 @@ export function HistoryList({ entries, title = 'Recent' }: { entries: HistoryEnt
 							onClick={() => recordHistory(h)}
 						>
 							<svg class="hist-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2 4.9l-1.4 1.4A9 9 0 1 0 13 3m-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8z" /></svg>
-							{h.kind === 'route' && <span class="chip">{h.route}</span>}
+							{h.kind === 'route' && <span class={`chip ${lineClass(h.route)}`}>{h.route}</span>}
 							<span class="row-main">
-								<span>{h.kind === 'stop' ? h.name : h.label}</span>
-								{h.kind === 'stop' && <span class="code">{h.code}</span>}
+								<span><Arrowed text={h.kind === 'stop' ? h.name : h.label} /></span>
+								{h.kind === 'stop' && isStopCode(h.code) && <span class="code">{h.code}</span>}
 							</span>
 							{h.kind === 'stop' && <Chips routes={h.routes} />}
 						</Link>

@@ -71,7 +71,9 @@ section + section { margin-top: 1.5rem; }
 .search-input {
 	width: 100%; padding: .9rem 1rem; font: inherit;
 	color: var(--ink); background: transparent;
-	border: 1px solid var(--muted); border-radius: 4px; outline: none;
+	/* The cards under the field round with --r; so does the field, or it reads as a different
+	   kind of object stacked on the list. */
+	border: 1px solid var(--muted); border-radius: var(--r); outline: none;
 }
 .search-input::placeholder { color: var(--muted); }
 .search-input:focus { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
@@ -80,7 +82,7 @@ section + section { margin-top: 1.5rem; }
    don't jump when the field takes focus. */
 .results.dropdown {
 	position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin-top: 4px;
-	background: var(--surface); border-radius: 4px; padding: .25rem 0;
+	background: var(--surface); border-radius: var(--r); padding: .25rem 0;
 	box-shadow: 0 2px 6px color-mix(in srgb, var(--ink) 25%, transparent);
 }
 .results.dropdown .label { padding: .25rem 1rem 0; }
@@ -104,6 +106,10 @@ a.row:hover, .dep-main:hover { background: var(--soft); }
 	font-weight: 700; font-size: .875rem; text-decoration: none; white-space: nowrap; flex: none;
 }
 .chip-sm { min-width: 0; padding: 1px 6px; font-size: .72rem; font-weight: 500; border-radius: 6px; }
+/* Luas lines wear their own colours; every other route uses the theme's. */
+.chip.line-red { background: #d7282f; color: #fff; }
+.chip.line-green { background: #00a651; color: #fff; }
+.arrow { width: 1em; height: 1em; vertical-align: -.15em; margin: 0 .25em; opacity: .7; }
 .chips { display: flex; gap: 4px; align-items: center; flex: none; max-width: 45%; overflow: hidden; }
 .chips .more { font-size: .72rem; color: var(--muted); }
 
