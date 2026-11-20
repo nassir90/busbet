@@ -5,7 +5,9 @@ import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -186,13 +188,15 @@ abstract class AppScreenshots(private val theme: String) {
         captureScreenRoboImage("build/screenshots/$theme/14-home-held.png")
     }
 
-    /** A card's ⋮ menu. */
-    @OptIn(ExperimentalRoborazziApi::class)
-    @Test fun homeCardMenu() {
+    /** Closing a card with its caret, then tapping it open again. */
+    @Test fun homeCollapseExpand() {
         show()
-        compose.onNodeWithContentDescription("More options for Aston Quay").performClick()
+        compose.onAllNodesWithContentDescription("Collapse")[2].performClick()
         settle()
-        captureScreenRoboImage("build/screenshots/$theme/15-home-card-menu.png")
+        capture("15-home-collapsed")
+        compose.onNodeWithText("Somerton").performClick()
+        settle()
+        compose.onAllNodesWithContentDescription("Collapse").assertCountEquals(3)
     }
 
     /** A departure with live data, so the trip and route screens open on something running. */

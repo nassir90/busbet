@@ -13,13 +13,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
@@ -39,7 +37,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.async
@@ -698,12 +710,34 @@ private fun FavouriteCard(
     }
 
     val lifted = held || isDragging
+    // The hold menu is exactly as wide as the card it belongs to.
+    var cardWidthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val heldNow = rememberUpdatedState(held)
+    val releaseNow = rememberUpdatedState(onRelease)
     // The menu hangs off the card itself: DropdownMenu puts it below the card, or above when
     // there isn't room below, and a tap anywhere outside it dismisses both menu and hold.
     Box(
         Modifier
             .fillMaxWidth()
             .alpha(if (faded) FADED_ALPHA else if (dimmed) 0.45f else 1f)
+            .onSizeChanged { cardWidthPx = it.width }
+            // Hold gives a menu or a move, never both: the moment the finger travels past the
+            // touch slop the menu goes, and dropping the card doesn't bring it back.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                            .firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (heldNow.value && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                            releaseNow.value()
+                            break
+                        }
+                    }
+                }
+            }
             .then(handleModifier),
     ) {
     ElevatedCard(
@@ -727,7 +761,9 @@ private fun FavouriteCard(
                     Modifier
                         .weight(1f)
                         .combinedClickable(
-                            onClick = onOpen,
+                            // A closed card opens up on a tap; an open one goes to the stop board.
+                            onClick = if (collapsed) toggleCollapsed else onOpen,
+                            onClickLabel = if (collapsed) "Expand" else null,
                             onLongClick = onHold,
                             onLongClickLabel = "Show actions",
                         )
@@ -763,35 +799,14 @@ private fun FavouriteCard(
                         }
                     }
                 }
-                // Open cards carry a ⌄ caret that closes them; closed cards carry nothing, and
-                // open again from the ⋮ menu.
+                // Open cards carry a ⌄ caret that closes them. Closed cards carry nothing, so the
+                // name gets the whole row; tapping a closed card opens it.
                 if (!collapsed) {
                     IconButton(onClick = toggleCollapsed) {
                         Icon(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = "Collapse",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Box {
-                    var menuOpen by remember { mutableStateOf(false) }
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More options for ${favourite.displayName}")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        if (collapsed) {
-                            DropdownMenuItem(
-                                text = { Text("Expand") },
-                                leadingIcon = { Icon(Icons.Filled.UnfoldMore, null) },
-                                onClick = { menuOpen = false; toggleCollapsed() },
-                            )
-                        }
-                        CardActionItems(
-                            close = { menuOpen = false },
-                            onRename = { showRename = true },
-                            onChooseRoutes = { showRoutes = true },
-                            onRemove = onRemove,
                         )
                     }
                 }
@@ -823,42 +838,75 @@ private fun FavouriteCard(
             }
         }
     }
-    DropdownMenu(expanded = held, onDismissRequest = onRelease) {
-        CardActionItems(
-            close = onRelease,
-            onRename = { showRename = true },
-            onChooseRoutes = { showRoutes = true },
-            onRemove = onRemove,
-        )
+    if (held) {
+        val gapPx = with(density) { MENU_GAP.roundToPx() }
+        Popup(
+            popupPositionProvider = remember(gapPx) { BesideCard(gapPx) },
+            onDismissRequest = onRelease,
+            properties = PopupProperties(focusable = true),
+        ) {
+            Surface(
+                modifier = Modifier.width(with(density) { cardWidthPx.toDp() }),
+                shape = CardDefaults.elevatedShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp,
+            ) {
+                Column(Modifier.padding(vertical = 8.dp)) {
+                    CardAction(Icons.Filled.Edit, "Rename") { onRelease(); showRename = true }
+                    CardAction(Icons.Filled.AltRoute, "Choose routes") { onRelease(); showRoutes = true }
+                    HorizontalDivider()
+                    CardAction(Icons.Filled.Delete, "Delete", MaterialTheme.colorScheme.error) { onRelease(); onRemove() }
+                }
+            }
+        }
     }
+    }
+}
+
+/** Space between a held card and its menu. */
+private val MENU_GAP = 8.dp
+
+/**
+ * Puts a held card's menu below the card, or above it when it won't fit below, [gapPx] clear of
+ * the card either way. Left edges line up, as the menu is the card's width.
+ */
+private class BesideCard(private val gapPx: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val below = anchorBounds.bottom + gapPx
+        val y = if (below + popupContentSize.height <= windowSize.height) below
+            else (anchorBounds.top - gapPx - popupContentSize.height).coerceAtLeast(0)
+        return IntOffset(anchorBounds.left, y)
     }
 }
 
 /** How far the rest of the screen fades back while a card is held. */
 private const val FADED_ALPHA = 0.3f
 
-/** A favourite's actions, shared by its ⋮ menu and the menu a long press opens. */
+/** One full-width row of a held card's menu: icon and label, centred together. */
 @Composable
-private fun CardActionItems(
-    close: () -> Unit,
-    onRename: () -> Unit,
-    onChooseRoutes: () -> Unit,
-    onRemove: () -> Unit,
+private fun CardAction(
+    icon: ImageVector,
+    label: String,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit,
 ) {
-    DropdownMenuItem(
-        text = { Text("Rename") },
-        leadingIcon = { Icon(Icons.Filled.Edit, null) },
-        onClick = { close(); onRename() },
-    )
-    DropdownMenuItem(
-        text = { Text("Choose routes") },
-        leadingIcon = { Icon(Icons.Filled.FilterAlt, null) },
-        onClick = { close(); onChooseRoutes() },
-    )
-    HorizontalDivider()
-    DropdownMenuItem(
-        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-        leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
-        onClick = { close(); onRemove() },
-    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, color = color, style = MaterialTheme.typography.titleSmall)
+    }
 }
