@@ -299,6 +299,10 @@ fun HomeScreen(
                         }
                     }
                 } else null,
+                // The cards it sits above (favourites, and the results dropdown) round their
+                // corners with the card shape; a text field defaults to a much tighter one, so
+                // the box read as a different kind of object stacked on the list.
+                shape = CardDefaults.elevatedShape,
                 modifier = Modifier.fillMaxWidth().onFocusChanged { searchFocused = it.isFocused },
             )
             Spacer(Modifier.height(8.dp))
