@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { type BatchDeparturesResponse, paths, prefetch, seed, useApi } from '../api';
-import { DepartureRow, Empty, MenuIcon, StaleBadge, TopBar } from '../components';
+import { Arrowed, DepartureRow, Empty, isStopCode, MenuIcon, StaleBadge, TopBar } from '../components';
 import { href, Link, useNavReady } from '../router';
 import { type Favourite, updateFavourite, useFavourites, useSettings } from '../store';
 import { useNowMinutes } from '../time';
@@ -118,9 +118,9 @@ function FavCard({ fav, data, missing, loading, failed, now, distance }: {
 		<article class="card">
 			<div class="card-head">
 				<Link class="card-title" href={href.stop(fav.code)} prefetch={() => prefetch(paths.departures(fav.code))}>
-					{fav.name}
+					<Arrowed text={fav.name} />
 				</Link>
-				<span class="code">{fav.code}</span>
+				{isStopCode(fav.code) && <span class="code">{fav.code}</span>}
 				{distance != null && <span class="dist">{distanceLabel(distance)}</span>}
 			</div>
 			{loading ? (

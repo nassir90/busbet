@@ -18,6 +18,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.dp
@@ -291,7 +292,7 @@ fun StopScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun RouteFilterDialog(
+internal fun RouteFilterDialog(
     routes: List<String>,
     hidden: Set<String>,
     isFavourite: Boolean,
@@ -367,14 +368,15 @@ fun DepartureRow(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val line = lineColors(d.routeShortName, d.routeType)
         Surface(
-            color = MaterialTheme.colorScheme.primary,
+            color = line?.let { Color(it.container) } ?: MaterialTheme.colorScheme.primary,
             shape = MaterialTheme.shapes.small,
             modifier = Modifier.widthIn(min = 48.dp).clickable(onClick = onOpenService),
         ) {
             Text(
                 d.routeShortName,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = line?.let { Color(it.content) } ?: MaterialTheme.colorScheme.onPrimary,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),

@@ -12,6 +12,12 @@ export interface Stop {
 	 * deployments that predate this field; a stop is effectively single-mode in practice.
 	 */
 	route_types?: number[];
+	/**
+	 * Where most services from this stop are headed. Search sets it on Luas stops only: each Luas
+	 * stop is two platforms under one stop_code and one name ("Jervis", "Jervis"), and the
+	 * destination is the only thing that tells a rider which platform a result is.
+	 */
+	towards?: string;
 }
 
 export interface StopTime {

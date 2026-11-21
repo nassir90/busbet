@@ -9,12 +9,49 @@ export interface Stop {
 	stop_lat?: number | null;
 	stop_lon?: number | null;
 	routes?: string[];
+	/** GTFS route_types serving the stop (0 Luas, 2 rail, 3 bus). Absent on older backends. */
+	route_types?: number[];
+	/** Where most services from a Luas platform go. Search sets it on Luas stops only. */
+	towards?: string;
+}
+
+/**
+ * The id to open or favourite a stop by. Most stops use their stop_code, but two kinds share
+ * one and fall back to the unique stop_id (the backend accepts either): rail stations, which
+ * carry code "0", and Luas stops, whose two platforms share a code. Opening the shared code always
+ * lands on the same platform, so trams in the other direction could never be seen.
+ */
+export function stopAddress(s: Stop): string {
+	if (!s.stop_code || s.stop_code === '0') return s.stop_id;
+	if (s.route_types?.includes(0)) return s.stop_id;
+	return s.stop_code;
+}
+
+/** The stop's name, with its direction when the name alone can't tell platforms apart. */
+export function stopDisplayName(s: Stop): string {
+	return s.towards ? `${s.stop_name} → ${s.towards}` : s.stop_name;
+}
+
+/**
+ * The CSS class giving a Luas line its own colour ("line-red", "line-green"), or '' for routes
+ * with no fixed colour. Matched by name, since search results carry names without types; a known
+ * non-tram [routeType] rules it out, so a bus route called "Red" would stay themed.
+ */
+export function lineClass(route: string, routeType?: number | null): string {
+	if (routeType != null && routeType !== 0 && !(routeType >= 900 && routeType <= 906)) return '';
+	switch (route.trim().toLowerCase()) {
+		case 'red': return 'line-red';
+		case 'green': return 'line-green';
+		default: return '';
+	}
 }
 
 export interface Departure {
 	trip_id: string;
 	stop_sequence: number;
 	route_short_name: string;
+	/** GTFS route_type of the service (0 Luas, 2 rail, 3 bus). Absent on older backends. */
+	route_type?: number | null;
 	direction_id: number;
 	trip_headsign: string;
 	scheduled_departure: string;

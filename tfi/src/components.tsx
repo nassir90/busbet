@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { type Departure, paths, prefetch } from './api';
+import { type Departure, lineClass, paths, prefetch } from './api';
 import { href, Link } from './router';
 import { dueLabel, minutesUntil, toMins, wallClock } from './time';
 
@@ -25,10 +25,10 @@ export function TopBar({ title, sub, actions, back = true }: {
 	);
 }
 
-export function RouteChip({ route, dir, from }: { route: string; dir?: number; from?: string }) {
+export function RouteChip({ route, dir, from, routeType }: { route: string; dir?: number; from?: string; routeType?: number | null }) {
 	return (
 		<Link
-			class="chip"
+			class={`chip ${lineClass(route, routeType)}`}
 			href={href.route(route, dir, from)}
 			prefetch={dir != null ? () => prefetch(paths.routeStops(route, dir), 3_600_000) : undefined}
 			title={`Route ${route}`}
@@ -36,6 +36,33 @@ export function RouteChip({ route, dir, from }: { route: string; dir?: number; f
 			{route}
 		</Link>
 	);
+}
+
+/**
+ * [text] with each " → " drawn as the Material arrow icon, as the app's search rows do: the
+ * font's "→" sits small and low beside the name. The text stays a plain string everywhere else.
+ */
+export function Arrowed({ text }: { text: string }) {
+	const parts = text.split(' → ');
+	return (
+		<>
+			{parts.map((p, i) => (
+				<>
+					{i > 0 && (
+						<svg class="arrow" viewBox="0 0 24 24" aria-label="to" role="img">
+							<path fill="currentColor" d="M12 4l-1.4 1.4 5.6 5.6H4v2h12.2l-5.6 5.6L12 20l8-8z" />
+						</svg>
+					)}
+					{p}
+				</>
+			))}
+		</>
+	);
+}
+
+/** True for a stop code worth showing; stop_ids (letters in them) are addresses, not labels. */
+export function isStopCode(code: string): boolean {
+	return /^\d+$/.test(code) && code !== '0';
 }
 
 /** Same as the app's StaleBadge: shown only when what's on screen may be out of date. */
@@ -64,7 +91,7 @@ export function DepartureRow({ d, stopCode, now }: { d: Departure; stopCode: str
 	const drift = driftText(d.scheduled_departure, d.estimated_departure, d.delay_seconds, d.realtime);
 	return (
 		<li class="dep">
-			<RouteChip route={d.route_short_name} dir={d.direction_id} from={stopCode} />
+			<RouteChip route={d.route_short_name} dir={d.direction_id} from={stopCode} routeType={d.route_type} />
 			<Link class="dep-main" href={href.trip(d.trip_id, stopCode)} prefetch={() => prefetch(paths.trip(d.trip_id))}>
 				<span class="dep-head">{d.trip_headsign}</span>
 				<span class={`dep-sub ${drift.cls}`}>{drift.text}</span>

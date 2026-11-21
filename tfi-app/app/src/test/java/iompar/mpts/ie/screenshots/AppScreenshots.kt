@@ -5,13 +5,19 @@ import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.github.takahirom.roborazzi.captureScreenRoboImage
 import iompar.mpts.ie.Api
 import iompar.mpts.ie.AppClock
 import iompar.mpts.ie.AppRoot
@@ -172,6 +178,27 @@ abstract class AppScreenshots(private val theme: String) {
         capture("12-feedback-attached")
     }
 
+    /** Holding a card: it stays lit, the rest fades, and its actions open beside it. */
+    @OptIn(ExperimentalRoborazziApi::class)
+    @Test fun homeHeld() {
+        show()
+        compose.onNodeWithText("Finnstown Abbey").performTouchInput { longClick() }
+        settle()
+        // The whole screen, so the popup menu is in the picture with the card it belongs to.
+        captureScreenRoboImage("build/screenshots/$theme/14-home-held.png")
+    }
+
+    /** Closing a card with its caret, then tapping it open again. */
+    @Test fun homeCollapseExpand() {
+        show()
+        compose.onAllNodesWithContentDescription("Collapse")[2].performClick()
+        settle()
+        capture("15-home-collapsed")
+        compose.onNodeWithText("Somerton").performClick()
+        settle()
+        compose.onAllNodesWithContentDescription("Collapse").assertCountEquals(3)
+    }
+
     /** A departure with live data, so the trip and route screens open on something running. */
     private fun liveDeparture(code: String): Departure {
         val board = runCatching { fixtures.recordedDepartures(code) }.getOrNull()
@@ -236,3 +263,8 @@ class LightScreenshots : AppScreenshots("light")
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "w411dp-h891dp-night-xxhdpi")
 class DarkScreenshots : AppScreenshots("dark")
+
+/** Every screen again on a small phone, where the favourite card header used to fall apart. */
+@RunWith(RobolectricTestRunner::class)
+@Config(qualifiers = "w320dp-h700dp-notnight-xxhdpi")
+class NarrowScreenshots : AppScreenshots("narrow")

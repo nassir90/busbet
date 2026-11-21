@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { type DeparturesResponse, paths, peek, useApi, type VehiclePosition } from '../api';
-import { DepartureRow, Empty, FilterIcon, Skeleton, StaleBadge, Star, TopBar } from '../components';
+import { type DeparturesResponse, lineClass, paths, peek, useApi, type VehiclePosition } from '../api';
+import { Arrowed, DepartureRow, Empty, FilterIcon, Skeleton, StaleBadge, Star, TopBar } from '../components';
 import { BusMap, type MapBus } from '../Map';
 import { useNavReady } from '../router';
 import { addFavourite, recordHistory, removeFavourite, updateFavourite, useFavourites, useSettings } from '../store';
@@ -55,12 +55,17 @@ export function StopView({ code }: { code: string }) {
 	};
 
 	const stop = res.data?.stop;
+	// A Luas platform is named by where it goes, as search names it, so the two platforms of a
+	// stop stay apart in history and favourites. Recorded under the address it was opened by.
+	const name = stop ? platformName(stop.stop_name, res.data!.departures) : code;
+	// Opened by stop_id (a Luas platform, a rail station), show the stop's own code where it has one.
+	const shownCode = stop && stop.stop_code && stop.stop_code !== '0' ? stop.stop_code : code;
 	useEffect(() => {
-		if (stop) recordHistory({ kind: 'stop', code: stop.stop_code, name: stop.stop_name, routes: stop.routes ?? routes.data });
-	}, [stop?.stop_code, routes.data]);
+		if (stop) recordHistory({ kind: 'stop', code, name, routes: stop.routes ?? routes.data });
+	}, [code, name, routes.data]);
 	useEffect(() => {
-		document.title = stop ? `${stop.stop_name} (${code}) — Iompar` : `Stop ${code} — Iompar`;
-	}, [stop?.stop_name, code]);
+		document.title = stop ? `${name} (${shownCode}) — Iompar` : `Stop ${code} — Iompar`;
+	}, [name, shownCode, code]);
 
 	const deps = res.data?.departures.filter((d) => !hidden.has(d.route_short_name));
 
@@ -86,8 +91,8 @@ export function StopView({ code }: { code: string }) {
 	return (
 		<>
 			<TopBar
-				title={stop?.stop_name ?? `Stop ${code}`}
-				sub={`Stop ${code}`}
+				title={stop ? <Arrowed text={name} /> : `Stop ${code}`}
+				sub={`Stop ${shownCode}`}
 				actions={
 					<>
 						<StaleBadge show={!!res.data?.stale || res.failedRefresh} />
@@ -100,7 +105,7 @@ export function StopView({ code }: { code: string }) {
 							aria-pressed={!!fav}
 							onClick={() => fav
 								? removeFavourite(code)
-								: addFavourite({ code, name: stop?.stop_name ?? code, lat: stop?.stop_lat, lon: stop?.stop_lon, hiddenRoutes: localHidden })}
+								: addFavourite({ code, name, lat: stop?.stop_lat, lon: stop?.stop_lon, hiddenRoutes: localHidden })}
 						>
 							<Star on={!!fav} />
 						</button>
@@ -123,7 +128,7 @@ export function StopView({ code }: { code: string }) {
 					</div>
 					<div class="filter-chips">
 						{allRoutes.map((r) => (
-							<label key={r} class={`chip toggle-chip${hidden.has(r) ? ' off' : ''}`}>
+							<label key={r} class={`chip toggle-chip ${lineClass(r)}${hidden.has(r) ? ' off' : ''}`}>
 								<input
 									type="checkbox"
 									checked={!hidden.has(r)}
@@ -186,7 +191,7 @@ function BusList({ vehicles, res, hidden, now }: {
 			<ul class="list">
 				{rows.map(({ v, d, due, state }) => (
 					<li key={v.trip_id} class="bus-row">
-						<span class="chip">{v.route_short_name}</span>
+						<span class={`chip ${lineClass(v.route_short_name, d?.route_type)}`}>{v.route_short_name}</span>
 						<span class="row-main">
 							<span>{d?.trip_headsign ?? 'In service'}</span>
 							<span class="code">
@@ -200,4 +205,20 @@ function BusList({ vehicles, res, hidden, now }: {
 			</ul>
 		</section>
 	);
+}
+
+/**
+ * "Jervis → The Point" for a Luas platform: the stop's name and the headsign most of its trams
+ * show, skipping trams headed for this stop itself. Any other stop keeps its plain name.
+ */
+function platformName(stopName: string, departures: DeparturesResponse['departures']): string {
+	if (!departures.length || !departures.every((d) => d.route_type === 0)) return stopName;
+	const squash = (n: string) => n.replace(/\W/g, '').toUpperCase();
+	const counts = new Map<string, number>();
+	for (const d of departures) {
+		if (squash(d.trip_headsign) === squash(stopName)) continue;
+		counts.set(d.trip_headsign, (counts.get(d.trip_headsign) ?? 0) + 1);
+	}
+	const top = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+	return top ? `${stopName} → ${top[0]}` : stopName;
 }

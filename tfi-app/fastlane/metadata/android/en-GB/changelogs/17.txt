@@ -1,0 +1,5 @@
+Luas: both platforms of every stop now open, each named by where it goes (Jervis → The Point), with Red and Green line colours.
+Favourite cards fit small phones. Hold a card to rename it, choose its routes or delete it, or drag it to reorder. Tap a closed card to open it.
+Choose light or dark in Settings, whatever the phone uses.
+Maps stay sharp when zoomed.
+The search box has the same rounded corners as the cards.
