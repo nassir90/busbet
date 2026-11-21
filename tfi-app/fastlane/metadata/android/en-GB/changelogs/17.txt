@@ -1,0 +1,3 @@
+Luas: both platforms of every stop now open, each named by where it goes (Jervis → The Point), and Red and Green line pills wear their line colours.
+Favourite cards fit small phones: the stop name gets the full width. Hold a card to rename it, choose its routes or delete it, or drag it to reorder. Tap a closed card to open it.
+The search box now has the same rounded corners as the cards.
