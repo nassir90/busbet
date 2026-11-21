@@ -52,7 +52,9 @@ function positionsByTrip(feed: transit_realtime.FeedMessage): Map<string, { lat:
  * it — which works for historical instants, not just the live tail.
  */
 export function getVehiclesForTrips(
-	tripIds: Map<string, { route: string; delay: number | null }>,
+	// Keyed by the feed's trip id. `trip_id` is the timetable's id to report, when the feed has
+	// renumbered the trip (see tripKey in gtfs.ts).
+	tripIds: Map<string, { route: string; delay: number | null; trip_id?: string }>,
 	vehiclesDir: string,
 	atSec?: number,
 	lookbackSec = DEFAULT_LOOKBACK_S,
@@ -86,7 +88,7 @@ export function getVehiclesForTrips(
 		}
 
 		result.push({
-			trip_id:          tripId,
+			trip_id:          meta.trip_id ?? tripId,
 			route_short_name: meta.route,
 			lat,
 			lon,

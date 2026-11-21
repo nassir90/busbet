@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 import type { transit_realtime } from 'gtfs-realtime-bindings';
 import protobuf from 'protobufjs/minimal.js';
-import { tripUpdatesFromDecoded, tripUpdatesFromEncoded } from '../src/gtfs.js';
+import { tripKeyIndex, tripUpdatesFromDecoded, tripUpdatesFromEncoded } from '../src/gtfs.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { FeedMessage } = (GtfsRealtimeBindings as any).transit_realtime as typeof transit_realtime;
@@ -39,14 +39,18 @@ function randomFeed(): transit_realtime.IFeedMessage {
 		const trip: transit_realtime.ITripDescriptor = {};
 		// Duplicate trip ids across entities: the later entity wins only if it has updates.
 		if (rnd() < 0.9) trip.tripId = pick(['', `t${i}`, `t${Math.floor(i / 2)}`, 'ünïcödé.1']);
-		if (rnd() < 0.5) { trip.routeId = 'R'; trip.startTime = '08:00:00'; trip.startDate = '20261104'; }
+		// Few distinct keys, so some are shared by several trips (ambiguous) and some by one.
+		if (rnd() < 0.5) { trip.routeId = pick(['R', 'R2', '']); trip.startTime = pick(['08:00:00', '25:10:00']); trip.startDate = '20261104'; }
+		if (rnd() < 0.5) trip.directionId = pick([0, 1]);
 		entity.push({ id: String(i), tripUpdate: { trip, stopTimeUpdate, timestamp: 1_793_790_000, vehicle: { id: 'v' } } });
 	}
 	return { header: { gtfsRealtimeVersion: '2.0', incrementality: 0, timestamp: 1_793_790_000 }, entity };
 }
 
 const same = (raw: Uint8Array) => {
-	assert.deepEqual(tripUpdatesFromEncoded(raw), tripUpdatesFromDecoded(FeedMessage.decode(raw)));
+	const encoded = tripUpdatesFromEncoded(raw), decoded = tripUpdatesFromDecoded(FeedMessage.decode(raw));
+	assert.deepEqual(encoded, decoded);
+	assert.deepEqual(tripKeyIndex(encoded), tripKeyIndex(decoded));
 };
 
 test('reads the same trip updates as the full decode, over random feeds', () => {

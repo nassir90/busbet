@@ -36,6 +36,48 @@ type StopUpdate = { stopSequence: number; delay: number };
 /** Per trip, its stop time updates sorted by stop sequence: everything the overlay needs. */
 export type TripUpdates = Map<string, StopUpdate[]>;
 
+// ── Matching trips the feed has renumbered ─────────────────────────────────
+//
+// The NTA can switch the realtime feed to a new timetable's trip ids before that timetable is
+// published: on 10 Nov 2026 every Dublin Bus update arrived as 6055_… while every published zip
+// still had 6027_…, so no board matched a single live update and a timetable reload couldn't
+// help. Every trip update also names its route, direction, first departure time and service
+// date, and those survive a renumbering: against that day's timetable 1,615 of 1,628 renumbered
+// trips matched exactly one scheduled trip (the rest two), and on every matched trip all 12,098
+// stop updates named the same stop at the same stop sequence. So a scheduled trip the feed
+// doesn't know by id falls back to that key.
+
+/** The key a trip descriptor and a scheduled trip share across renumberings, or null. */
+export function tripKey(routeId: string, directionId: number, startTime: string, startDate: string): string | null {
+	if (!routeId || !startTime || !startDate) return null;
+	return `${routeId}\u0001${directionId}\u0001${startTime}\u0001${startDate}`;
+}
+
+/**
+ * Per TripUpdates map, its trip ids by tripKey. Null marks a key that more than one trip in the
+ * feed carries, which can't be matched safely. Kept beside the map rather than in it so the map
+ * stays exactly what buildTripUpdates has always returned.
+ */
+const keyIndexes = new WeakMap<TripUpdates, Map<string, string | null>>();
+
+function indexKey(index: Map<string, string | null>, key: string | null, tripId: string): void {
+	if (key == null) return;
+	const had = index.get(key);
+	if (had === undefined) index.set(key, tripId);
+	else if (had !== tripId) index.set(key, null);
+}
+
+/** For tests: the key index both readers build, to compare them. */
+export function tripKeyIndex(updates: TripUpdates): Map<string, string | null> {
+	return keyIndexes.get(updates) ?? new Map();
+}
+
+/** The feed's trip id for a scheduled trip's key, if exactly one trip in the feed carries it. */
+export function tripIdForKey(updates: TripUpdates | null, key: string | null): string | undefined {
+	if (!updates || key == null) return undefined;
+	return keyIndexes.get(updates)?.get(key) ?? undefined;
+}
+
 /**
  * Memoised per decoded feed. Building this map is a full walk over every entity in the NTA feed,
  * and it used to run once per stop lookup — so a batch of ten favourites walked the feed ten
@@ -49,6 +91,7 @@ function buildTripUpdates(feed: transit_realtime.FeedMessage): TripUpdates {
 	const cached = tripUpdatesCache.get(feed);
 	if (cached) return cached;
 	const map: TripUpdates = new Map();
+	const index = new Map<string, string | null>();
 	for (const entity of feed.entity) {
 		const tu = entity.tripUpdate;
 		if (!tu?.trip?.tripId) continue;
@@ -58,9 +101,12 @@ function buildTripUpdates(feed: transit_realtime.FeedMessage): TripUpdates {
 			if (delay != null) updates.push({ stopSequence: stu.stopSequence ?? 0, delay });
 		}
 		if (updates.length) {
-			map.set(tu.trip.tripId, updates.sort((a, b) => a.stopSequence - b.stopSequence));
+			const t = tu.trip;
+			map.set(t.tripId!, updates.sort((a, b) => a.stopSequence - b.stopSequence));
+			indexKey(index, tripKey(t.routeId ?? '', t.directionId ?? 0, t.startTime ?? '', t.startDate ?? ''), t.tripId!);
 		}
 	}
+	keyIndexes.set(map, index);
 	tripUpdatesCache.set(feed, map);
 	return map;
 }
@@ -148,36 +194,48 @@ function parseTripUpdates(raw: Buffer): TripUpdates {
 		if (delay != null) updates.push({ stopSequence, delay });
 	};
 
-	const readTripId = (stop: number): string => {
-		let tripId = '';
-		while (pos < stop) {
-			const tag = uint32();
-			if (tag >>> 3 === 1) {
-				const len = uint32();
-				tripId = raw.toString('utf8', pos, pos = Math.min(pos + len, end));
-			} else skip(tag & 7);
-		}
-		return tripId;
+	const string = (): string => {
+		const len = uint32();
+		return raw.toString('utf8', pos, pos = Math.min(pos + len, end));
 	};
 
-	const readTripUpdate = (stop: number): [string, StopUpdate[]] => {
-		let tripId: string | undefined;
+	type Trip = { tripId: string; key: string | null };
+	/** TripDescriptor: trip_id 1, start_time 2, start_date 3, route_id 5, direction_id 6. */
+	const readTrip = (stop: number): Trip => {
+		let tripId = '', startTime = '', startDate = '', routeId = '', directionId = 0;
+		while (pos < stop) {
+			const tag = uint32();
+			switch (tag >>> 3) {
+				case 1: tripId = string(); break;
+				case 2: startTime = string(); break;
+				case 3: startDate = string(); break;
+				case 5: routeId = string(); break;
+				case 6: directionId = uint32(); break;
+				default: skip(tag & 7);
+			}
+		}
+		return { tripId, key: tripKey(routeId, directionId, startTime, startDate) };
+	};
+
+	const readTripUpdate = (stop: number): [Trip, StopUpdate[]] => {
+		let trip: Trip | undefined;
 		const updates: StopUpdate[] = [];
 		while (pos < stop) {
 			const tag = uint32();
 			switch (tag >>> 3) {
-				case 1: tripId = readTripId(sub()); break;
+				case 1: trip = readTrip(sub()); break;
 				case 2: readStopTimeUpdate(sub(), updates); break;
 				default: skip(tag & 7);
 			}
 		}
-		if (tripId === undefined) throw new Error("missing required 'trip'");
-		return [tripId, updates];
+		if (trip === undefined) throw new Error("missing required 'trip'");
+		return [trip, updates];
 	};
 
+	const index = new Map<string, string | null>();
 	const readEntity = (stop: number): void => {
 		let id = false;
-		let tripUpdate: [string, StopUpdate[]] | undefined;
+		let tripUpdate: [Trip, StopUpdate[]] | undefined;
 		while (pos < stop) {
 			const tag = uint32();
 			switch (tag >>> 3) {
@@ -188,9 +246,10 @@ function parseTripUpdates(raw: Buffer): TripUpdates {
 		}
 		if (!id) throw new Error("missing required 'id'");
 		if (!tripUpdate) return;
-		const [tripId, updates] = tripUpdate;
+		const [{ tripId, key }, updates] = tripUpdate;
 		if (tripId && updates.length) {
 			map.set(tripId, updates.sort((a, b) => a.stopSequence - b.stopSequence));
+			indexKey(index, key, tripId);
 		}
 	};
 
@@ -215,6 +274,7 @@ function parseTripUpdates(raw: Buffer): TripUpdates {
 		}
 	}
 	if (!header) throw new Error("missing required 'header'");
+	keyIndexes.set(map, index);
 	return map;
 }
 
@@ -267,9 +327,13 @@ function addSeconds(timeHHMM: string, seconds: number): string {
 	return `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`;
 }
 
-export function applyRealtimeDelaysToTrip(detail: TripDetail, tripUpdates: TripUpdates | null): TripDetail {
+/**
+ * @param realtimeTripId the feed's id for this trip when it differs from the timetable's (see
+ *                       tripKey); defaults to the trip's own id
+ */
+export function applyRealtimeDelaysToTrip(detail: TripDetail, tripUpdates: TripUpdates | null, realtimeTripId?: string): TripDetail {
 	if (!tripUpdates) return detail;
-	const updates = tripUpdates.get(detail.trip_id);
+	const updates = tripUpdates.get(detail.trip_id) ?? (realtimeTripId ? tripUpdates.get(realtimeTripId) : undefined);
 	if (!updates) return detail;
 
 	for (const stop of detail.stops) {
@@ -293,10 +357,19 @@ export function applyRealtimeDelays(departures: Departure[], feed: transit_realt
 	return applyTripUpdates(departures, buildTripUpdates(feed));
 }
 
-export function applyTripUpdates(departures: Departure[], tripUpdates: TripUpdates | null): Departure[] {
+/**
+ * @param realtimeTripIds timetable trip id → the feed's id, for trips the feed has renumbered
+ *                        (see tripKey). A departure matched through it carries realtime_trip_id.
+ */
+export function applyTripUpdates(departures: Departure[], tripUpdates: TripUpdates | null, realtimeTripIds?: Map<string, string>): Departure[] {
 	if (departures.length === 0 || !tripUpdates) return departures;
 	for (const dep of departures) {
-		const updates = tripUpdates.get(dep.trip_id);
+		let updates = tripUpdates.get(dep.trip_id);
+		if (!updates) {
+			const rtId = realtimeTripIds?.get(dep.trip_id);
+			updates = rtId ? tripUpdates.get(rtId) : undefined;
+			if (updates) dep.realtime_trip_id = rtId;
+		}
 		if (!updates) continue;
 		let delay: number | null = null;
 		for (const u of updates) {

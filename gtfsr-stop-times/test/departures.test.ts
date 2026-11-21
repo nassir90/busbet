@@ -117,3 +117,51 @@ test('a stale or missing snapshot leaves the schedule untouched', async () => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test('trips the feed has renumbered match by route, direction, start time and date', async () => {
+	// The feed names every trip by a new id (6055_… for the timetable's 6027_…), as on 10 Nov 2026.
+	const keyed = {
+		...storage,
+		async getScheduledDepartures() {
+			return [
+				dep('old-1', 4, '12:00'),  // renumbered, one feed trip carries its key: matched
+				dep('old-2', 4, '12:05'),  // renumbered, two feed trips carry its key: left alone
+				dep('old-3', 4, '12:10'),  // the feed's trip runs on another date: left alone
+				dep('same', 4, '12:15'),   // known by id: matched by id, no realtime_trip_id
+			];
+		},
+		async getTripKeyFields(ids: string[]) {
+			const all: Record<string, { route_id: string; direction_id: number; start_time: string }> = {
+				'old-1': { route_id: 'R1', direction_id: 1, start_time: '11:30:00' },
+				'old-2': { route_id: 'R2', direction_id: 0, start_time: '11:35:00' },
+				'old-3': { route_id: 'R3', direction_id: 0, start_time: '11:40:00' },
+			};
+			return new Map(ids.filter((id) => all[id]).map((id) => [id, all[id]]));
+		},
+	} as unknown as GtfsStorage;
+	const day = '20261104';  // T's service date in Dublin
+	const stu = (delay: number) => [{ stopSequence: 2, departure: { delay } }];
+	const dir = mkdtempSync(join(tmpdir(), 'busbet-dep-test-'));
+	try {
+		writeFeed(dir, T, [
+			{ id: '1', tripUpdate: { trip: { tripId: 'new-1', routeId: 'R1', directionId: 1, startTime: '11:30:00', startDate: day }, stopTimeUpdate: stu(180) } },
+			{ id: '2', tripUpdate: { trip: { tripId: 'new-2a', routeId: 'R2', directionId: 0, startTime: '11:35:00', startDate: day }, stopTimeUpdate: stu(60) } },
+			{ id: '3', tripUpdate: { trip: { tripId: 'new-2b', routeId: 'R2', directionId: 0, startTime: '11:35:00', startDate: day }, stopTimeUpdate: stu(60) } },
+			{ id: '4', tripUpdate: { trip: { tripId: 'new-3', routeId: 'R3', directionId: 0, startTime: '11:40:00', startDate: '20261103' }, stopTimeUpdate: stu(60) } },
+			{ id: '5', tripUpdate: { trip: { tripId: 'same', routeId: 'R4', directionId: 0, startTime: '11:45:00', startDate: day }, stopTimeUpdate: stu(-60) } },
+		]);
+		const r = await getDepartures('1001', keyed, dir, T + 10);
+		const by = Object.fromEntries(r!.departures.map((d) => [d.trip_id, d]));
+		assert.equal(by['old-1'].realtime, true);
+		assert.equal(by['old-1'].delay_seconds, 180);
+		assert.equal(by['old-1'].estimated_departure, '12:03');
+		assert.equal(by['old-1'].realtime_trip_id, 'new-1');
+		assert.equal(by['old-2'].realtime, false);
+		assert.equal(by['old-3'].realtime, false);
+		assert.equal(by['same'].delay_seconds, -60);
+		assert.equal(by['same'].realtime_trip_id, undefined);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+

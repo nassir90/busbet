@@ -72,6 +72,24 @@ test('a stop by id or code carries the sorted route types that serve it', async 
 	}
 });
 
+test('trip key fields: route, direction and first departure, read once per trip', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'busbet-sqlite-test-'));
+	try {
+		const path = join(dir, 'gtfs.db');
+		await seed(path);
+		const storage = createSqliteBackend(path);
+		const expected = new Map([
+			['t3', { route_id: 'RL', direction_id: 0, start_time: '10:10:00' }],  // first of its two stops
+			['t4', { route_id: 'RD', direction_id: 0, start_time: '10:00:00' }],
+		]);
+		assert.deepEqual(await storage.getTripKeyFields(['t3', 't4', 'missing', 't3']), expected);
+		// The same answer on a repeat, where part of it comes from the per-process cache.
+		assert.deepEqual(await storage.getTripKeyFields(['t4', 't3']), new Map([['t4', expected.get('t4')], ['t3', expected.get('t3')]]));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test('search names the destination of each Luas platform, and only of Luas platforms', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'busbet-sqlite-test-'));
 	try {

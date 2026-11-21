@@ -1,6 +1,6 @@
 import { createClient } from '@libsql/client';
 import type { Client } from '@libsql/client';
-import type { GtfsStorage, Stop, Departure, StopTime, RouteDirection, RouteStop, ShapePoint } from './types.js';
+import type { GtfsStorage, Stop, Departure, StopTime, RouteDirection, RouteStop, ShapePoint, TripKeyFields } from './types.js';
 import { serviceMinutes } from './servicetime.js';
 
 function openDb(path: string): Client {
@@ -47,6 +47,8 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 	 * the service (reload-gtfs.sh), so what this holds is valid for as long as the process is.
 	 */
 	const routeTypesByStop = new Map<string, number[]>();
+	/** getTripKeyFields per trip, valid for the process's life for the same reason. */
+	const keyFieldsByTrip = new Map<string, TripKeyFields>();
 
 	/**
 	 * Set [Stop.towards] on the Luas stops in a search result: the headsign of most trips calling
@@ -445,6 +447,34 @@ export function createSqliteBackend(dbPath: string): GtfsStorage {
 					first_departure: row.first_departure as string,
 					last_arrival: row.last_arrival as string,
 				});
+			}
+			return out;
+		},
+
+		async getTripKeyFields(tripIds: string[]) {
+			const out = new Map<string, TripKeyFields>();
+			const todo: string[] = [];
+			for (const id of new Set(tripIds)) {
+				const hit = keyFieldsByTrip.get(id);
+				if (hit) out.set(id, hit);
+				else todo.push(id);
+			}
+			if (!todo.length) return out;
+			const placeholders = todo.map(() => '?').join(',');
+			const r = await db.execute({
+				sql: `SELECT t.trip_id, t.route_id, t.direction_id, MIN(st.departure_time) AS start_time
+				      FROM trips t JOIN stop_times st ON st.trip_id = t.trip_id
+				      WHERE t.trip_id IN (${placeholders}) GROUP BY t.trip_id`,
+				args: todo
+			});
+			for (const row of r.rows) {
+				const fields: TripKeyFields = {
+					route_id: row.route_id as string,
+					direction_id: Number(row.direction_id ?? 0),
+					start_time: row.start_time as string,
+				};
+				keyFieldsByTrip.set(row.trip_id as string, fields);
+				out.set(row.trip_id as string, fields);
 			}
 			return out;
 		},
