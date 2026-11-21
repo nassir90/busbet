@@ -46,6 +46,26 @@ export function lineClass(route: string, routeType?: number | null): string {
 	}
 }
 
+export type TransitMode = 'bus' | 'tram' | 'train';
+
+/** GTFS route_type → mode, as the app's TransitMode.of: standard and extended codes; bus otherwise. */
+export function modeOf(routeType?: number | null): TransitMode {
+	if (routeType == null) return 'bus';
+	if (routeType === 0 || (routeType >= 900 && routeType <= 906)) return 'tram';
+	if (routeType === 2 || (routeType >= 100 && routeType <= 117)) return 'train';
+	return 'bus';
+}
+
+/**
+ * The one mode to show for a stop, as the app's TransitMode.ofStop: rail and tram win over the bus
+ * default. Null when the backend sent no route_types, so nothing is drawn rather than a guess.
+ */
+export function stopMode(routeTypes?: number[]): TransitMode | null {
+	if (!routeTypes?.length) return null;
+	const modes = routeTypes.map(modeOf);
+	return modes.includes('train') ? 'train' : modes.includes('tram') ? 'tram' : 'bus';
+}
+
 export interface Departure {
 	trip_id: string;
 	stop_sequence: number;

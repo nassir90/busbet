@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { fetchJson, lineClass, paths, prefetch, stopAddress, stopDisplayName, type RouteDirection, type Stop } from '../api';
-import { Arrowed, isStopCode, Star } from '../components';
+import { fetchJson, lineClass, paths, prefetch, stopAddress, stopDisplayName, stopMode, type RouteDirection, type Stop } from '../api';
+import { Arrowed, isStopCode, ModeIcon, Star } from '../components';
 import { href, Link, navigate } from '../router';
 import { addFavourite, forgetHistory, recordHistory, removeFavourite, useFavourites, useHistory, type HistoryEntry } from '../store';
 
@@ -183,6 +183,8 @@ export function Search({ onQuery }: { onQuery: (active: boolean) => void }) {
 													{s.stop_code !== '0' && <span class="code">{s.stop_code}</span>}
 												</span>
 												<Chips routes={s.routes} />
+												{/* Mode logo past the route chips, as in the app's search rows. */}
+												<ModeIcon mode={stopMode(s.route_types)} />
 											</Link>
 											<button
 												class={`icon-btn subtle${fav ? ' on' : ''}`}
